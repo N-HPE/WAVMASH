@@ -1,0 +1,24 @@
+
+yt-dlp>=2024.12.0
+ffmpeg-python
+mutagen
+librosa
+soundfile
+static_ffmpeg
+
+# DJ analysis (desktop_app/analysis.py)
+# AudioFlux: fast C-accelerated CQT chroma used for key detection.
+audioflux
+# Essentia (MTG Barcelona) is used automatically IF importable, for superior
+# key (EDMA profile), beat tracking (RhythmExtractor2013) and downbeats
+# (BeatsLoudness). It has no Windows wheels. To get it, use the Linux/macOS
+# conda env (see environment.yml) or the Docker image (see docker/Dockerfile),
+# where the analysis backend switches to Essentia with zero code changes.
+# The pipeline falls back to librosa + AudioFlux + a libKeyFinder-style
+# multi-profile (Shaath/Temperley/Krumhansl) key detector when Essentia is absent.
+# essentia  ; sys_platform != "win32"
+
+# Spotify: pip install spotdl --no-deps  (spotdl이 구버전 fastapi를 끌어와 NiceGUI가 깨짐)
+
+# Desktop (Qt)
+PySide6>=6.7.0

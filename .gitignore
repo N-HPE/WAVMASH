@@ -1,0 +1,13 @@
+.env
+__pycache__/
+*.py[cod]
+*.log
+desktop_app.log
+archive.json
+archive.json.broken
+playlists.json
+.venv/
+venv/
+dist/
+build/
+*.egg-info/
