@@ -126,12 +126,15 @@ export default function SpotifySyncManager({ onSyncComplete }: SpotifySyncManage
     setStatusMsg(null);
     try {
       const res: SpotifySyncResult = await api.triggerSpotifySync(configId);
-      let text = `'${res.name}' 동기화 완료! (스포티파이 총 ${res.total_spotify_tracks}곡)`;
-      if (res.downloaded > 0) text += ` · ${res.downloaded}곡 신규 다운로드`;
-      if (res.deleted > 0) text += ` · ${res.deleted}곡 및 빈 폴더 정리 완료`;
-      if (res.downloaded === 0 && res.deleted === 0) text += ` · 변경사항 없음 (최신 상태)`;
+      let text = `'${res.name}' 동기화 완료! (Spotify ${res.total_spotify_tracks ?? 0}곡`;
+      if (res.local_count != null) text += ` · 로컬 ${res.local_count}`;
+      if (res.missing_count) text += ` · 누락 ${res.missing_count}`;
+      text += ')';
+      if (res.downloaded) text += ` · 신규 ${res.downloaded}곡`;
+      if (res.deleted) text += ` · 삭제 ${res.deleted}곡`;
+      if (res.status === 'partial') text += ' · 일부 곡은 재동기화 필요';
 
-      setStatusMsg({ type: 'success', text });
+      setStatusMsg({ type: res.missing_count ? 'error' : 'success', text });
       await loadConfigs();
       onSyncComplete?.();
     } catch (err) {
@@ -307,12 +310,19 @@ export default function SpotifySyncManager({ onSyncComplete }: SpotifySyncManage
                       </a>
                     </div>
 
-                    <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-                      <span>곡 수: {cfg.track_count}곡</span>
+                  <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+                      <span>
+                        Spotify {cfg.track_count}곡
+                        {cfg.local_count != null ? ` · 로컬 ${cfg.local_count}` : ''}
+                        {cfg.missing_count ? ` · 누락 ${cfg.missing_count}` : ''}
+                      </span>
                       <span>•</span>
                       <span>
                         마지막 동기화: {cfg.last_synced_at || '동기화 기록 없음'}
                       </span>
+                      {cfg.status === 'partial' && (
+                        <span className="text-amber-400">부분 동기화</span>
+                      )}
                     </div>
                   </div>
 

@@ -51,6 +51,9 @@ export interface Playlist {
   sync_auto?: boolean | null;
   sync_status?: string | null;
   last_synced_at?: string | null;
+  spotify_count?: number | null;
+  local_count?: number | null;
+  missing_count?: number | null;
 }
 
 export interface PlaylistCreate {
@@ -144,6 +147,9 @@ export interface SpotifySyncConfig {
   last_synced_at: string | null;
   status?: string;
   track_count: number;
+  local_count?: number;
+  missing_count?: number;
+  missing_ids?: string[];
   synced_track_ids: string[];
 }
 
@@ -151,9 +157,13 @@ export interface SpotifySyncResult {
   config_id: string;
   name?: string;
   total_spotify_tracks?: number;
+  local_count?: number;
+  missing_count?: number;
+  missing_ids?: string[];
   downloaded?: number;
   deleted?: number;
   deleted_titles?: string[];
+  status?: string;
   synced_at?: string;
   error?: string;
 }

@@ -177,6 +177,12 @@ class WaveMashAPI {
     return this.fetch<Playlist[]>('/api/playlists');
   }
 
+  async getPlaylistTracks(name: string): Promise<(Track & { missing?: boolean })[]> {
+    return this.fetch<(Track & { missing?: boolean })[]>(
+      `/api/playlists/${encodeURIComponent(name)}/tracks`
+    );
+  }
+
   async createPlaylist(data: PlaylistCreate): Promise<Playlist> {
     return this.fetch<Playlist>('/api/playlists', {
       method: 'POST',

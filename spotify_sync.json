@@ -2,12 +2,48 @@
     {
         "id": "sync_1785540309232",
         "url": "https://open.spotify.com/playlist/4R4XdMePdrMsGmPsA3O8gS",
-        "name": "Spotify Playlist",
+        "name": "T",
         "auto_sync_enabled": true,
         "sync_deletions": true,
-        "last_synced_at": "2026-07-31 19:27:10",
-        "track_count": 0,
-        "synced_track_ids": [],
-        "status": "pending"
+        "last_synced_at": "2026-08-01 13:23:56",
+        "track_count": 31,
+        "synced_track_ids": [
+            "7rgnKPJ51NBGP5k20yaSHn",
+            "7dP5EtY64b0dWwcWXb8Xlq",
+            "13cX2o4cASGLYXNaQyXWxt",
+            "2PLAhK85fxXzy64KoIKQqg",
+            "39hHUnYBmyMwprzRaPODCX",
+            "3yBdKw7lvhn5u4vpeWRDTV",
+            "3wdOS1vNOk05bJyV83etSd",
+            "1RMcfaJ3f4a4vLU7veJU5H",
+            "00GvqqIkMdHaxChyhZf9Nx",
+            "4vqZk6EL4i4lSYHMViNnuV",
+            "7cRFqJjHNkcNcXtJyjVnAs",
+            "2FaoNbxvH2cwcGq4o2g4oE",
+            "6KrrcOQiX7NQ4h038wKTUy",
+            "6zldvnVMC25b4uliSKO9Lz",
+            "0UZFTyq4ogQ5RvfOHGPVdZ",
+            "34x9lHWBLEWgDSUUlx1T5Z",
+            "6dECxGLLCMrntF12AslbNO",
+            "4QUxlbwlSBYiaTT27A5MEj",
+            "2amgCr1hZvTYFAdfiR1XW4",
+            "2dt5AmiiAA7dOhE1xws9qY",
+            "2vxsdAnntt6eGZJJRaLBF6",
+            "6YOg0daCavgHVBZ3u9hZWc",
+            "3d4lGcDN1FISRTBeBeGRoJ",
+            "0w7JPlp7eEQI2EKW3ayXrv",
+            "2LRoF3RLdaerhvl6Yl4Ap9",
+            "2ILdqzrMNg4k8GNhTePqia",
+            "5eOX9mAXxkfWCq5LLVAIje",
+            "3IrAZTFMsy9ZPj5LurJ8vi"
+        ],
+        "status": "partial",
+        "local_count": 28,
+        "missing_count": 3,
+        "missing_ids": [
+            "3WBeUXMYcRePMS2DwaNwUD",
+            "2HC3zCi2hZffYhY7UBKBWa",
+            "2SweUwDKRlXeCDyaJddhWJ"
+        ]
     }
 ]

@@ -182,30 +182,54 @@ def sync_single_playlist(config_id: str) -> dict[str, Any]:
         current_spotify_ids = {str(s.song_id): s for s in songs if getattr(s, "song_id", None)}
         current_id_set = set(current_spotify_ids.keys())
 
-        # 2. 신규 곡 다운로드
+        # 2. 신규 곡 다운로드 (아카이브 upsert는 pipeline 내부에서도 수행)
         download_res = spotify_pipeline.process_spotify_url_sync(url)
-        downloaded_count = download_res.get("downloaded", 0) if isinstance(download_res, dict) else 1
+        downloaded_count = 0
+        missing_from_download: list[str] = []
+        archive_cache = get_archive_cache()
+        from library import ensure_track_id
+
+        if isinstance(download_res, dict) and "records" in download_res:
+            downloaded_count = int(download_res.get("downloaded") or 0)
+            missing_from_download = list(download_res.get("missing_ids") or [])
+            for rec in download_res.get("records") or []:
+                ensure_track_id(rec)
+                archive_cache.upsert(rec, prepend=True)
+        elif isinstance(download_res, dict):
+            # 단일 트랙이 dict로 온 경우 (records 키 없음)
+            ensure_track_id(download_res)
+            archive_cache.upsert(download_res, prepend=True)
+            downloaded_count = 1
+        elif download_res:
+            ensure_track_id(download_res)
+            archive_cache.upsert(download_res, prepend=True)
+            downloaded_count = 1
+
+        # 디스크 기준 최신본으로 강제 리로드 (캐시 불일치 방지)
+        library_records = archive_cache.reload()
 
         # 3. 삭제 동기화 처리
         deleted_count = 0
         deleted_titles: list[str] = []
-        archive_cache = get_archive_cache()
-        library_records = archive_cache.get_records()
 
         if sync_deletions and old_synced_ids:
+            # old_synced_ids 중 "실제로 로컬에 있던" 것만 삭제 대상으로
+            # (과거 버그로 Spotify ID 전체가 synced에 들어가 있을 수 있음)
             removed_spotify_ids = old_synced_ids - current_id_set
 
-            for rec in library_records:
-                rec_id = str(rec.get("id") or "")
+            for rec in list(library_records):
                 rec_url = str(rec.get("url") or "")
-                rec_spotify_id = spotify_track_id(rec_url) or rec_id
+                rec_spotify_id = (
+                    spotify_track_id(rec_url)
+                    or str(rec.get("external_id") or "")
+                    or str(rec.get("id") or "")
+                )
 
                 if rec_spotify_id in removed_spotify_ids:
                     track_id = str(rec.get("track_id") or rec.get("id") or "")
                     file_path = str(rec.get("path") or rec.get("local_path") or "")
                     title = str(rec.get("title") or "알 수 없는 트랙")
 
-                    # 파일 및 커버 삭제
                     if file_path and os.path.isfile(file_path):
                         sidecar = find_cover_sidecar(file_path)
                         if sidecar and os.path.isfile(sidecar):
@@ -221,18 +245,29 @@ def sync_single_playlist(config_id: str) -> dict[str, Any]:
 
             if deleted_count > 0:
                 cleanup_empty_dirs()
+                library_records = archive_cache.reload()
 
-        # 4. 로컬 플레이리스트 (playlists.json) 생성 및 곡 매핑 갱신
-        updated_records = archive_cache.get_records()
-        matching_track_ids = []
+        # 4. 로컬 플레이리스트 매핑 — Spotify 순서 유지, 파일 있는 곡만
+        matching_track_ids: list[str] = []
+        local_spotify_ids: list[str] = []
+        missing_ids: list[str] = []
         for song in songs:
-            rec = spotify_pipeline.find_existing_record(updated_records, song)
+            sid = str(getattr(song, "song_id", "") or "")
+            rec = spotify_pipeline.find_existing_record(library_records, song)
             if rec and spotify_pipeline.record_has_file(rec):
                 tid = str(rec.get("track_id") or rec.get("id") or "")
                 if tid and tid not in matching_track_ids:
                     matching_track_ids.append(tid)
+                if sid:
+                    local_spotify_ids.append(sid)
+            elif sid:
+                missing_ids.append(sid)
 
-        # playlists.json에 저장 (WAVMASH 로컬 플레이리스트 호환 데이터 구조)
+        # download 단계에서 보고한 missing과 합집합
+        for mid in missing_from_download:
+            if mid not in missing_ids:
+                missing_ids.append(mid)
+
         from server.vibe_palette import make_meta
 
         pdata = load_playlists()
@@ -255,29 +290,41 @@ def sync_single_playlist(config_id: str) -> dict[str, Any]:
             "source": "spotify",
             "spotify_url": url,
             "sync_id": config_id,
+            "spotify_count": len(songs),
+            "local_count": len(matching_track_ids),
+            "missing_count": len(missing_ids),
         })
         pdata["meta"][name] = base_meta
         save_playlists(pdata)
 
         # 5. 설정 정보 갱신
         now_str = time.strftime("%Y-%m-%d %H:%M:%S")
+        status = "completed" if not missing_ids else "partial"
         with _sync_lock:
             configs = _load_configs_file()
             if 0 <= cfg_index < len(configs) and configs[cfg_index]["id"] == config_id:
                 configs[cfg_index]["name"] = name
                 configs[cfg_index]["last_synced_at"] = now_str
-                configs[cfg_index]["status"] = "completed"
+                configs[cfg_index]["status"] = status
                 configs[cfg_index]["track_count"] = len(songs)
-                configs[cfg_index]["synced_track_ids"] = list(current_id_set)
+                configs[cfg_index]["local_count"] = len(matching_track_ids)
+                configs[cfg_index]["missing_count"] = len(missing_ids)
+                configs[cfg_index]["missing_ids"] = missing_ids
+                # 실제로 로컬에 있는 Spotify ID만 (삭제 동기화 기준)
+                configs[cfg_index]["synced_track_ids"] = local_spotify_ids
                 _save_configs_file(configs)
 
         return {
             "config_id": config_id,
             "name": name,
             "total_spotify_tracks": len(songs),
+            "local_count": len(matching_track_ids),
+            "missing_count": len(missing_ids),
+            "missing_ids": missing_ids,
             "downloaded": downloaded_count,
             "deleted": deleted_count,
             "deleted_titles": deleted_titles,
+            "status": status,
             "synced_at": now_str,
         }
 

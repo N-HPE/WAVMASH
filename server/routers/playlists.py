@@ -45,6 +45,18 @@ def _playlist_from_data(
                 break
 
     source = str(m.get("source") or ("spotify" if sync_cfg else "local"))
+    local_count = m.get("local_count")
+    if local_count is None:
+        local_count = len(track_ids)
+    spotify_count = m.get("spotify_count")
+    if spotify_count is None and sync_cfg:
+        spotify_count = sync_cfg.get("track_count")
+    missing_count = m.get("missing_count")
+    if missing_count is None and sync_cfg is not None:
+        missing_count = sync_cfg.get("missing_count")
+    if missing_count is None and spotify_count is not None:
+        missing_count = max(0, int(spotify_count) - int(local_count))
+
     return Playlist(
         name=name,
         track_ids=track_ids,
@@ -63,6 +75,9 @@ def _playlist_from_data(
         last_synced_at=(
             str(sync_cfg.get("last_synced_at")) if sync_cfg and sync_cfg.get("last_synced_at") else None
         ),
+        spotify_count=int(spotify_count) if spotify_count is not None else None,
+        local_count=int(local_count) if local_count is not None else None,
+        missing_count=int(missing_count) if missing_count is not None else None,
     )
 
 
@@ -110,6 +125,44 @@ async def list_playlists() -> list[Playlist]:
             p.name.lower(),
         )
     )
+    return result
+
+
+@router.get("/{name}/tracks", response_model=list)
+async def get_playlist_tracks(name: str) -> list[dict[str, Any]]:
+    """플레이리스트에 속한 트랙 상세 목록을 Spotify 순서대로 반환합니다."""
+    from server.routers.tracks import _record_to_track
+
+    data = load_playlists()
+    playlists = data.get("playlists", {})
+    if name not in playlists:
+        raise HTTPException(status_code=404, detail=f"'{name}' 플레이리스트를 찾을 수 없습니다.")
+
+    track_ids = playlists[name] if isinstance(playlists[name], list) else []
+    cache = get_archive_cache()
+    records = cache.get_records()
+    by_id: dict[str, dict[str, Any]] = {}
+    for rec in records:
+        tid = str(rec.get("track_id") or rec.get("id") or "")
+        if tid:
+            by_id[tid] = rec
+
+    result: list[dict[str, Any]] = []
+    for tid in track_ids:
+        rec = by_id.get(str(tid))
+        if not rec:
+            result.append({
+                "track_id": str(tid),
+                "title": "(파일 없음)",
+                "artist": "",
+                "has_file": False,
+                "has_cover": False,
+                "missing": True,
+            })
+            continue
+        track = _record_to_track(rec).model_dump()
+        track["missing"] = not track.get("has_file")
+        result.append(track)
     return result
 
 

@@ -32,6 +32,8 @@ import {
 import PlaylistGrid from '@/components/PlaylistGrid';
 import PlaylistListByGenre from '@/components/PlaylistListByGenre';
 import SpotifySyncManager from '@/components/SpotifySyncManager';
+import PlaylistDetailPanel from '@/components/PlaylistDetailPanel';
+import { AnimatePresence } from 'framer-motion';
 
 const VIEW_STORAGE_KEY = 'wavemash_playlist_view_mode';
 
@@ -47,6 +49,7 @@ export default function PlaylistsPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [showSync, setShowSync] = useState(false);
   const [viewMode, setViewMode] = useState<PlaylistViewMode>('list');
+  const [selected, setSelected] = useState<Playlist | null>(null);
 
   useEffect(() => {
     try {
@@ -66,6 +69,10 @@ export default function PlaylistsPage() {
     try {
       const data = await api.getPlaylists();
       setPlaylists(data);
+      setSelected((prev) => {
+        if (!prev) return null;
+        return data.find((p) => p.name === prev.name) ?? null;
+      });
     } catch (err) {
       setError(
         err instanceof Error ? err.message : '플레이리스트를 불러올 수 없습니다.'
@@ -269,14 +276,30 @@ export default function PlaylistsPage() {
           <div className="h-full overflow-y-auto max-w-4xl mx-auto pt-2 pb-6">
             <SpotifySyncManager onSyncComplete={fetchPlaylists} />
           </div>
-        ) : viewMode === 'block' ? (
-          <PlaylistGrid playlists={playlists} onPlaylistClick={(p) => console.log('click', p.name)} />
         ) : (
-          <PlaylistListByGenre
-            playlists={playlists}
-            onPlaylistClick={(p) => console.log('click', p.name)}
-            onAssignVibe={handleAssignVibe}
-          />
+          <div className={`h-full grid gap-3 ${selected ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1'}`}>
+            <div className="min-h-0 overflow-hidden">
+              {viewMode === 'block' ? (
+                <PlaylistGrid playlists={playlists} onPlaylistClick={setSelected} />
+              ) : (
+                <PlaylistListByGenre
+                  playlists={playlists}
+                  onPlaylistClick={setSelected}
+                  onAssignVibe={handleAssignVibe}
+                />
+              )}
+            </div>
+            <AnimatePresence mode="wait">
+              {selected && (
+                <PlaylistDetailPanel
+                  key={selected.name}
+                  playlist={selected}
+                  onClose={() => setSelected(null)}
+                  onSyncComplete={fetchPlaylists}
+                />
+              )}
+            </AnimatePresence>
+          </div>
         )}
       </div>
     </div>

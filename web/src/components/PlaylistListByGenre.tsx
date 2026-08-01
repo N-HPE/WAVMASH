@@ -121,10 +121,18 @@ export default function PlaylistListByGenre({
                       {playlist.sync_status === 'syncing' && (
                         <span className="shrink-0 text-[9px] text-[#d4a853]">동기화 중</span>
                       )}
+                      {(playlist.missing_count ?? 0) > 0 && (
+                        <span className="shrink-0 text-[9px] text-amber-400">
+                          누락 {playlist.missing_count}
+                        </span>
+                      )}
                     </div>
                     <div className="text-[11px] text-white/35 truncate">
                       {shadeMeta.label} · {playlist.track_count ?? playlist.track_ids?.length ?? 0}곡
-                      {playlist.sync_auto ? ' · 자동동기화 ON' : ''}
+                      {playlist.spotify_count != null
+                        ? ` · Spotify ${playlist.spotify_count}`
+                        : ''}
+                      {playlist.sync_auto ? ' · 자동동기화' : ''}
                     </div>
                   </div>
 

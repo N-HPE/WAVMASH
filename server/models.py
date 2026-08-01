@@ -84,6 +84,9 @@ class Playlist(BaseModel):
     sync_auto: bool | None = None
     sync_status: str | None = None
     last_synced_at: str | None = None
+    spotify_count: int | None = None
+    local_count: int | None = None
+    missing_count: int | None = None
 
 
 class PlaylistCreate(BaseModel):

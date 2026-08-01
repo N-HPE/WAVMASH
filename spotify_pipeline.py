@@ -159,14 +159,25 @@ def find_existing_record(records: list[dict], song) -> dict | None:
         for rec in records:
             if str(rec.get('id', '')) == sid:
                 return rec
+            if str(rec.get('track_id', '')) == sid:
+                return rec
+            if str(rec.get('external_id', '')) == sid:
+                return rec
             if spotify_track_id(str(rec.get('url') or '')) == sid:
                 return rec
     name = str(getattr(song, 'name', '') or '')
+    artist = str(getattr(song, 'artist', '') or '')
     if name:
-        key = re.sub(r'[^a-z0-9]', '', name.lower())
+        title_key = re.sub(r'[^a-z0-9]', '', name.lower())
+        artist_key = re.sub(r'[^a-z0-9]', '', artist.lower())
         for rec in records:
-            rec_key = re.sub(r'[^a-z0-9]', '', str(rec.get('title', '')).lower())
-            if rec_key and rec_key == key:
+            rec_title = re.sub(r'[^a-z0-9]', '', str(rec.get('title', '')).lower())
+            if not rec_title or rec_title != title_key:
+                continue
+            if not artist_key:
+                return rec
+            rec_artist = re.sub(r'[^a-z0-9]', '', str(rec.get('artist', '')).lower())
+            if artist_key in rec_artist or rec_artist in artist_key:
                 return rec
     return None
 
@@ -381,6 +392,8 @@ def process_spotify_url_sync(url, progress_callback=None):
             'skipped': skipped,
             'downloaded': 0,
             'already_have': True,
+            'missing_ids': [],
+            'spotify_total': len(all_songs),
         }
 
     spot_temp = os.path.join(TEMP_DIR, 'spotdl')
@@ -392,10 +405,10 @@ def process_spotify_url_sync(url, progress_callback=None):
         raise RuntimeError('다운로드할 Spotify 트랙 URL이 없습니다.')
 
     kind = _spotify_resource_kind(url)
-    if kind in ('playlist', 'album', 'artist') and len(to_download) == len(all_songs):
-        spotdl_targets = [url]
-    else:
-        spotdl_targets = download_urls
+    # 전체 플리 URL 일괄 다운로드는 spotdl이 일부 곡을 조용히 빠뜨리는 경우가 있어
+    # 개별 트랙 URL로 받는 편이 동기화 신뢰도가 높다.
+    spotdl_targets = download_urls
+    _ = kind  # reserved for future playlist-level optimizations
 
     # spotdl은 일괄 실행이라 하트비트로 "살아있음"을 표시
     stop_pulse = threading.Event()
@@ -438,6 +451,38 @@ def process_spotify_url_sync(url, progress_callback=None):
             glob.glob(os.path.join(spot_temp, '**', '*.mp3'), recursive=True),
             key=os.path.getmtime,
         )
+
+    # 1차 일괄 실패/부분 실패 시 누락 곡만 개별 재시도
+    if not mp3_files or len(mp3_files) < len(to_download):
+        have_names = {os.path.basename(p).lower() for p in mp3_files}
+        retry_urls = []
+        for s in to_download:
+            su = str(getattr(s, 'url', '') or '')
+            if not su:
+                continue
+            # 이미 mp3가 대략 매칭되면 스킵 (정확 매칭은 후처리에서)
+            retry_urls.append(su)
+        # mp3가 전혀 없으면 전부 재시도, 일부만 있으면 트랙별 재시도
+        if retry_urls and (not mp3_files or len(mp3_files) < max(1, int(len(to_download) * 0.9))):
+            _emit(
+                progress_callback,
+                0.12,
+                f'누락 곡 재시도 중 ({len(retry_urls)}개 URL)...',
+                stage='downloading',
+                current=0,
+                total=len(to_download),
+                skipped=skipped,
+            )
+            before_retry = set(glob.glob(os.path.join(spot_temp, '**', '*.mp3'), recursive=True))
+            more_errs = run_spotdl_download(retry_urls, spot_temp)
+            spotdl_errors.extend(more_errs)
+            mp3_files = find_new_mp3_files(spot_temp, before)
+            if not mp3_files:
+                mp3_files = sorted(
+                    glob.glob(os.path.join(spot_temp, '**', '*.mp3'), recursive=True),
+                    key=os.path.getmtime,
+                )
+            _ = have_names, before_retry
 
     if not mp3_files:
         hint = ''
@@ -539,10 +584,38 @@ def process_spotify_url_sync(url, progress_callback=None):
         pass
     cleanup_temp_dir()
 
+    # 아카이브에 즉시 반영 (동기화/재매핑이 캐시를 볼 수 있도록)
+    try:
+        from desktop_app.archive_store import load_archive, upsert_record
+
+        lib = load_archive()
+        for rec in records:
+            lib = upsert_record(lib, rec, prepend=True)
+    except Exception as exc:
+        print(f'[spotify_pipeline] archive upsert: {exc}')
+
+    # 아직 라이브러리에 없는 Spotify 곡 ID
+    refreshed = load_archive() if 'load_archive' in dir() else library
+    try:
+        from desktop_app.archive_store import load_archive as _load
+
+        refreshed = _load()
+    except Exception:
+        refreshed = library
+    missing_ids: list[str] = []
+    for s in all_songs:
+        sid = str(getattr(s, 'song_id', '') or '')
+        if not sid:
+            continue
+        if not is_track_in_library(refreshed, s):
+            missing_ids.append(sid)
+
     msg = f'완료! ({len(records)}곡'
     if skipped:
         msg += f' · {skipped}곡 스킵'
-    if spotdl_errors and len(records) < len(to_download):
+    if missing_ids:
+        msg += f' · {len(missing_ids)}곡 미확보'
+    elif spotdl_errors and len(records) < len(to_download):
         msg += f' · {len(to_download) - len(records)}곡 spotdl 실패'
     msg += ')'
     _emit(
@@ -551,17 +624,19 @@ def process_spotify_url_sync(url, progress_callback=None):
         msg,
         stage='done',
         current=len(records),
-        total=total,
+        total=max(total, len(to_download)),
         skipped=skipped,
     )
 
-    if len(records) == 1 and skipped == 0:
+    if len(records) == 1 and skipped == 0 and not missing_ids:
         return records[0]
     return {
         'records': records,
         'skipped': skipped,
         'downloaded': len(records),
         'already_have': False,
+        'missing_ids': missing_ids,
+        'spotify_total': len(all_songs),
     }
 
 
