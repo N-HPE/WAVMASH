@@ -118,6 +118,7 @@ export default function PlaylistGrid({ playlists, onPlaylistClick }: PlaylistGri
                   {playlist!.name}
                 </span>
                 <span className="text-[8px] font-semibold" style={{ color: `${txt}${dark ? 0.45 : 0.35})` }}>
+                  {(playlist!.source === 'spotify' || playlist!.sync_id) ? '♪ ' : ''}
                   {vibeLabel} · {playlist!.track_count ?? playlist!.track_ids?.length ?? 0}곡
                 </span>
               </div>

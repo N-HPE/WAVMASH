@@ -77,6 +77,13 @@ class Playlist(BaseModel):
     vibe: str = "other"
     shade: int = 0
     color: str = "#6D4C41"
+    # local = 수동/로컬 전용, spotify = 스포티파이 동기화 연동
+    source: str = "local"
+    spotify_url: str | None = None
+    sync_id: str | None = None
+    sync_auto: bool | None = None
+    sync_status: str | None = None
+    last_synced_at: str | None = None
 
 
 class PlaylistCreate(BaseModel):

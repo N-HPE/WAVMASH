@@ -32,6 +32,7 @@ export default function SpotifySyncManager({ onSyncComplete }: SpotifySyncManage
 
   const [adding, setAdding] = useState(false);
   const [syncingId, setSyncingId] = useState<string | null>(null);
+  const [syncingAll, setSyncingAll] = useState(false);
   const [statusMsg, setStatusMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const loadConfigs = useCallback(async () => {
@@ -143,18 +144,58 @@ export default function SpotifySyncManager({ onSyncComplete }: SpotifySyncManage
     }
   };
 
+  const handleSyncAll = async () => {
+    setSyncingAll(true);
+    setStatusMsg(null);
+    try {
+      const results = await api.triggerSpotifySyncAll();
+      const failed = results.filter((r) => r.error);
+      const ok = results.filter((r) => !r.error);
+      const downloaded = ok.reduce((sum, r) => sum + (r.downloaded || 0), 0);
+      setStatusMsg({
+        type: failed.length && !ok.length ? 'error' : 'success',
+        text: failed.length
+          ? `동기화 ${ok.length}개 성공 · ${failed.length}개 실패 · 신규 ${downloaded}곡`
+          : `전체 동기화 완료 · ${ok.length}개 플리 · 신규 ${downloaded}곡 다운로드`,
+      });
+      await loadConfigs();
+      onSyncComplete?.();
+    } catch (err) {
+      setStatusMsg({
+        type: 'error',
+        text: err instanceof Error ? err.message : '전체 동기화 실패',
+      });
+    } finally {
+      setSyncingAll(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
+      <div className="rounded-xl border border-[#1DB954]/20 bg-[#1DB954]/5 px-4 py-3 text-[12px] text-white/60 leading-relaxed">
+        <p className="font-medium text-[#1DB954] mb-1">Spotify 동기화 vs 로컬</p>
+        <p>
+          여기에 등록한 플리는 Spotify가 원본입니다. 서버를 켜면(윈도우/맥) 자동으로 빠진 곡을 받아 채웁니다.
+          「추가」로 만든 플리는 로컬 전용이라 Spotify와 무관합니다.
+        </p>
+      </div>
+
       {/* ── Add Sync Form ── */}
       <div className="glass rounded-xl p-6 relative overflow-hidden">
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
           <div className="flex items-center gap-2">
             <Music2 className="h-5 w-5 text-[#d4a853]" />
             <h3 className="text-lg font-medium">스포티파이 플레이리스트 동기화 등록</h3>
           </div>
-          <span className="text-xs text-muted-foreground bg-white/5 px-2.5 py-1 rounded-full border border-white/10">
-            자동 감지 & 삭제 연동
-          </span>
+          <button
+            type="button"
+            onClick={handleSyncAll}
+            disabled={syncingAll || configs.length === 0}
+            className="flex items-center gap-1.5 rounded-lg bg-white/10 hover:bg-white/15 px-3 py-1.5 text-xs font-medium disabled:opacity-40 cursor-pointer"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${syncingAll ? 'animate-spin text-[#d4a853]' : ''}`} />
+            {syncingAll ? '전체 동기화 중...' : '전체 지금 동기화'}
+          </button>
         </div>
 
         <form onSubmit={handleAddPlaylist} className="space-y-4">

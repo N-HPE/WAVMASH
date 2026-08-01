@@ -1,0 +1,13 @@
+[
+    {
+        "id": "sync_1785540309232",
+        "url": "https://open.spotify.com/playlist/4R4XdMePdrMsGmPsA3O8gS",
+        "name": "Spotify Playlist",
+        "auto_sync_enabled": true,
+        "sync_deletions": true,
+        "last_synced_at": "2026-07-31 19:27:10",
+        "track_count": 0,
+        "synced_track_ids": [],
+        "status": "pending"
+    }
+]

@@ -44,6 +44,13 @@ export interface Playlist {
   shade: number;
   /** 표시용 hex 색상 */
   color: string;
+  /** local = 로컬 전용, spotify = 스포티파이 동기화 */
+  source?: 'local' | 'spotify' | string;
+  spotify_url?: string | null;
+  sync_id?: string | null;
+  sync_auto?: boolean | null;
+  sync_status?: string | null;
+  last_synced_at?: string | null;
 }
 
 export interface PlaylistCreate {
@@ -142,11 +149,12 @@ export interface SpotifySyncConfig {
 
 export interface SpotifySyncResult {
   config_id: string;
-  name: string;
-  total_spotify_tracks: number;
-  downloaded: number;
-  deleted: number;
-  deleted_titles: string[];
-  synced_at: string;
+  name?: string;
+  total_spotify_tracks?: number;
+  downloaded?: number;
+  deleted?: number;
+  deleted_titles?: string[];
+  synced_at?: string;
+  error?: string;
 }
 

@@ -327,6 +327,13 @@ class WaveMashAPI {
     );
   }
 
+  async triggerSpotifySyncAll(): Promise<import('./types').SpotifySyncResult[]> {
+    return this.fetch<import('./types').SpotifySyncResult[]>(
+      '/api/spotify-sync/sync-all',
+      { method: 'POST' }
+    );
+  }
+
   /* ── Stream Endpoint ── */
 
   getStreamUrl(trackId: string): string {

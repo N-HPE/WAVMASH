@@ -17,6 +17,7 @@ from server.models import (
     PlaylistUpdate,
 )
 from server.services.playlist_service import apply_auto_playlists
+from server.services.spotify_sync_service import sync_lookup_by_name
 from server.vibe_palette import make_meta
 
 router = APIRouter(prefix="/playlists", tags=["플레이리스트"])
@@ -27,8 +28,23 @@ def _playlist_from_data(
     track_ids: list[str],
     activity: float | None,
     meta: dict[str, Any] | None,
+    sync_map: dict[str, dict[str, Any]] | None = None,
 ) -> Playlist:
     m = meta if isinstance(meta, dict) else make_meta(name=name)
+    sync_map = sync_map or {}
+    sync_cfg = None
+    sync_id = m.get("sync_id")
+    if sync_id:
+        sync_cfg = sync_map.get(f"__id__:{sync_id}")
+    if not sync_cfg:
+        sync_cfg = sync_map.get(name)
+    if not sync_cfg and m.get("spotify_url"):
+        for cfg in sync_map.values():
+            if cfg.get("url") == m.get("spotify_url"):
+                sync_cfg = cfg
+                break
+
+    source = str(m.get("source") or ("spotify" if sync_cfg else "local"))
     return Playlist(
         name=name,
         track_ids=track_ids,
@@ -37,6 +53,16 @@ def _playlist_from_data(
         vibe=str(m.get("vibe") or "other"),
         shade=int(m.get("shade") or 0),
         color=str(m.get("color") or "#6D4C41"),
+        source=source,
+        spotify_url=(
+            str(m.get("spotify_url") or (sync_cfg or {}).get("url") or "") or None
+        ),
+        sync_id=str(m.get("sync_id") or (sync_cfg or {}).get("id") or "") or None,
+        sync_auto=bool(sync_cfg.get("auto_sync_enabled")) if sync_cfg else None,
+        sync_status=str(sync_cfg.get("status")) if sync_cfg else None,
+        last_synced_at=(
+            str(sync_cfg.get("last_synced_at")) if sync_cfg and sync_cfg.get("last_synced_at") else None
+        ),
     )
 
 
@@ -51,6 +77,7 @@ async def list_playlists() -> list[Playlist]:
     playlists = data.get("playlists", {})
     activity = data.get("activity", {})
     meta = data.get("meta", {})
+    sync_map = sync_lookup_by_name()
 
     result: list[Playlist] = []
     for name, track_ids in playlists.items():
@@ -62,6 +89,7 @@ async def list_playlists() -> list[Playlist]:
                 track_ids,
                 activity.get(name),
                 meta.get(name),
+                sync_map,
             )
         )
     # 바이브 → shade → 이름 순 (장르 정리 우선)

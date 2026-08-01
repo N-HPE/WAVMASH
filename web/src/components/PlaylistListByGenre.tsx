@@ -105,11 +105,26 @@ export default function PlaylistListByGenre({
                   </div>
 
                   <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium text-white/90 truncate">
-                      {playlist.name}
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className="text-sm font-medium text-white/90 truncate">
+                        {playlist.name}
+                      </div>
+                      {playlist.source === 'spotify' || playlist.sync_id ? (
+                        <span className="shrink-0 text-[9px] px-1.5 py-0.5 rounded bg-[#1DB954]/15 text-[#1DB954] border border-[#1DB954]/25">
+                          Spotify
+                        </span>
+                      ) : (
+                        <span className="shrink-0 text-[9px] px-1.5 py-0.5 rounded bg-white/5 text-white/35 border border-white/10">
+                          Local
+                        </span>
+                      )}
+                      {playlist.sync_status === 'syncing' && (
+                        <span className="shrink-0 text-[9px] text-[#d4a853]">동기화 중</span>
+                      )}
                     </div>
                     <div className="text-[11px] text-white/35 truncate">
                       {shadeMeta.label} · {playlist.track_count ?? playlist.track_ids?.length ?? 0}곡
+                      {playlist.sync_auto ? ' · 자동동기화 ON' : ''}
                     </div>
                   </div>
 

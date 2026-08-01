@@ -68,6 +68,17 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     except Exception as exc:
         print(f"[WaveMash] Archive load error: {exc}")
 
+    # 등록된 Spotify 동기화 플리 → 이 기기에 없는 곡 자동 다운로드
+    if settings.AUTO_SYNC_ON_START:
+        try:
+            from server.services.spotify_sync_service import schedule_startup_auto_sync
+
+            schedule_startup_auto_sync(delay_sec=3.0)
+        except Exception as exc:
+            print(f"[WaveMash] Spotify auto-sync schedule error: {exc}")
+    else:
+        print("[WaveMash] Spotify auto-sync on start disabled (WAVMASH_AUTO_SYNC_ON_START=false)")
+
     yield
 
     print("[WaveMash] Server shutting down")

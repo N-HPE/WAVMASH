@@ -51,6 +51,7 @@ API 문서: [http://localhost:8000/docs](http://localhost:8000/docs)
 - WAV 파일 폴더를 OneDrive / iCloud / Syncthing 등으로 동기화
 - 양쪽 `.env`의 `WAVMASH_WAV_ROOT`를 그 폴더로 지정
 - `archive.json`, `playlists.json`은 git에 안 올라가므로, 같은 목록이 필요하면 파일을 수동 복사하거나 클라우드 동기 폴더에 두고 심볼릭 링크
+- **`spotify_sync.json`은 git에 포함**됩니다. Spotify 동기화로 등록한 플리 URL이 맥/윈도우에 같이 따라가고, 서버 시작 시(`WAVMASH_AUTO_SYNC_ON_START=true`) 이 기기에 없는 곡을 자동으로 받습니다.
 
 ---
 

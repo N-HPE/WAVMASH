@@ -244,8 +244,19 @@ def sync_single_playlist(config_id: str) -> dict[str, Any]:
             pdata["meta"] = {}
         pdata["playlists"][name] = matching_track_ids
         pdata["activity"][name] = time.time()
-        if name not in pdata["meta"] or not isinstance(pdata["meta"].get(name), dict):
-            pdata["meta"][name] = make_meta(name=name)
+        existing_meta = pdata["meta"].get(name) if isinstance(pdata["meta"].get(name), dict) else {}
+        base_meta = make_meta(
+            vibe=existing_meta.get("vibe"),
+            shade=existing_meta.get("shade"),
+            color=existing_meta.get("color"),
+            name=name,
+        )
+        base_meta.update({
+            "source": "spotify",
+            "spotify_url": url,
+            "sync_id": config_id,
+        })
+        pdata["meta"][name] = base_meta
         save_playlists(pdata)
 
         # 5. 설정 정보 갱신
@@ -292,6 +303,44 @@ def sync_all_active_playlists() -> list[dict[str, Any]]:
             except Exception as exc:
                 results.append({
                     "config_id": cfg["id"],
+                    "name": cfg.get("name"),
                     "error": str(exc),
                 })
     return results
+
+
+def sync_lookup_by_name() -> dict[str, dict[str, Any]]:
+    """플레이리스트 이름 → 동기화 설정 맵."""
+    out: dict[str, dict[str, Any]] = {}
+    for cfg in get_sync_configs():
+        name = str(cfg.get("name") or "").strip()
+        if name:
+            out[name] = cfg
+        # sync_id / url로도 meta에서 매칭할 수 있게 id 키도 보관
+        sid = str(cfg.get("id") or "")
+        if sid:
+            out[f"__id__:{sid}"] = cfg
+    return out
+
+
+def schedule_startup_auto_sync(*, delay_sec: float = 3.0) -> None:
+    """서버 기동 후 백그라운드에서 자동 동기화 (기기 간 누락 곡 보완)."""
+
+    def _run() -> None:
+        time.sleep(max(0.0, delay_sec))
+        configs = [c for c in get_sync_configs() if c.get("auto_sync_enabled", True)]
+        if not configs:
+            print("[WaveMash] Spotify auto-sync: no active configs")
+            return
+        print(f"[WaveMash] Spotify auto-sync starting ({len(configs)} playlists)...")
+        results = sync_all_active_playlists()
+        ok = sum(1 for r in results if not r.get("error"))
+        dl = sum(int(r.get("downloaded") or 0) for r in results if not r.get("error"))
+        err = sum(1 for r in results if r.get("error"))
+        print(f"[WaveMash] Spotify auto-sync done — ok={ok} downloaded={dl} errors={err}")
+
+    threading.Thread(
+        target=_run,
+        daemon=True,
+        name="spotify-startup-sync",
+    ).start()
