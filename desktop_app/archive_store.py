@@ -1,60 +1,53 @@
-import json
-import os
+"""Hybrid archive facade — JSON core + SQLite index (see library.py)."""
+
+from __future__ import annotations
+
 from typing import Any
 
-from paths import PROJECT_DIR
+from library import (
+    ARCHIVE_JSON_PATH,
+    delete_library_record,
+    load_library_records,
+    move_records_to_front,
+    sanitize_record_for_db,
+    save_library_records,
+    upsert_library_record,
+)
 
-DB_FILE = os.path.join(PROJECT_DIR, "archive.json")
-
-
-JSON_SKIP_KEYS = {"cover_data", "cover_mime"}
-
-
-def sanitize_record_for_db(record: dict[str, Any]) -> dict[str, Any]:
-    return {
-        k: v
-        for k, v in record.items()
-        if k not in JSON_SKIP_KEYS and not isinstance(v, (bytes, bytearray))
-    }
+DB_FILE = ARCHIVE_JSON_PATH
 
 
 def load_archive() -> list[dict[str, Any]]:
-    if not os.path.exists(DB_FILE):
-        return []
-    try:
-        with open(DB_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        if not isinstance(data, list):
-            return []
-        return [sanitize_record_for_db(r) for r in data if isinstance(r, dict)]
-    except Exception:
-        broken = DB_FILE + ".broken"
-        try:
-            os.replace(DB_FILE, broken)
-        except OSError:
-            pass
-        return []
+    return load_library_records()
 
 
 def save_archive(records: list[dict[str, Any]]) -> None:
-    records = [sanitize_record_for_db(r) for r in records]
-    with open(DB_FILE, "w", encoding="utf-8") as f:
-        json.dump(records, f, indent=4, ensure_ascii=False)
+    save_library_records(records)
 
 
-def upsert_record(records: list[dict[str, Any]], record: dict[str, Any]) -> list[dict[str, Any]]:
-    record = sanitize_record_for_db(record)
-    existing = next((r for r in records if r.get("id") == record.get("id")), None)
-    if existing:
-        existing.update(record)
-    else:
-        records.append(record)
-    save_archive(records)
-    return records
+def upsert_record(
+    records: list[dict[str, Any]],
+    record: dict[str, Any],
+    *,
+    prepend: bool = False,
+) -> list[dict[str, Any]]:
+    return upsert_library_record(records, record, prepend=prepend)
+
+
+def move_records_to_top(records: list[dict[str, Any]], track_ids: list[str]) -> list[dict[str, Any]]:
+    return move_records_to_front(records, track_ids)
 
 
 def delete_record(records: list[dict[str, Any]], track_id: str) -> list[dict[str, Any]]:
-    records = [r for r in records if r.get("id") != track_id]
-    save_archive(records)
-    return records
+    return delete_library_record(records, track_id)
 
+
+__all__ = [
+    'DB_FILE',
+    'delete_record',
+    'load_archive',
+    'move_records_to_top',
+    'sanitize_record_for_db',
+    'save_archive',
+    'upsert_record',
+]

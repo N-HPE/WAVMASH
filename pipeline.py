@@ -66,13 +66,37 @@ def make_progress_hook(callback):
                 pct = 0.12 + ratio * 0.33
                 if pct - last_pct[0] >= 0.02:
                     last_pct[0] = pct
-                    callback(pct, '다운로드 중...')
+                    _emit(callback, pct, f'오디오 다운로드 중... ({int(ratio * 100)}%)', stage='downloading')
             else:
-                callback(0.15, '다운로드 중...')
+                _emit(callback, 0.15, '오디오 다운로드 중...', stage='downloading')
         elif status == 'finished':
-            callback(0.44, '다운로드 마무리 중...')
+            _emit(callback, 0.44, '다운로드 마무리 중...', stage='downloading')
 
     return hook
+
+
+def _emit(callback, pct, msg, *, stage='', current=None, total=None, track_title=None, track_artist=None, skipped=None):
+    if not callback:
+        return
+    info = {}
+    if stage:
+        info['stage'] = stage
+    if current is not None:
+        info['current'] = current
+    if total is not None:
+        info['total'] = total
+        if current is not None:
+            info['remaining'] = max(0, total - current)
+    if track_title is not None:
+        info['track_title'] = track_title
+    if track_artist is not None:
+        info['track_artist'] = track_artist
+    if skipped is not None:
+        info['skipped'] = skipped
+    try:
+        callback(pct, msg, info if info else None)
+    except TypeError:
+        callback(pct, msg)
 
 
 def find_downloaded_audio(temp_dir, video_id):
@@ -101,22 +125,41 @@ def find_downloaded_audio(temp_dir, video_id):
     return None
 
 
-def convert_to_staging_wav(source_path, track_id, progress_callback=None):
+def convert_to_staging_wav(
+    source_path,
+    track_id,
+    progress_callback=None,
+    *,
+    progress_base=0.48,
+    progress_end=0.64,
+    label='',
+):
     os.makedirs(TEMP_DIR, exist_ok=True)
     staging_wav = os.path.join(TEMP_DIR, f'{track_id}_staging.wav')
 
-    if progress_callback:
-        progress_callback(0.48, 'WAV 변환 중 (44.1kHz · 16-bit)...')
+    msg_suffix = f' · {label}' if label else ''
+    _emit(
+        progress_callback,
+        progress_base,
+        f'WAV 변환 중 (44.1kHz · 16-bit){msg_suffix}',
+        stage='converting',
+    )
 
     stop_pulse = threading.Event()
+    span = max(0.01, progress_end - progress_base)
 
     def pulse():
-        pct = 0.48
+        pct = progress_base
         while not stop_pulse.wait(2.0):
             if not progress_callback:
                 break
-            pct = min(0.64, pct + 0.015)
-            progress_callback(pct, 'WAV 변환 중...')
+            pct = min(progress_end, pct + span * 0.08)
+            _emit(
+                progress_callback,
+                pct,
+                f'WAV 변환 중...{msg_suffix}',
+                stage='converting',
+            )
 
     pulse_thread = threading.Thread(target=pulse, daemon=True) if progress_callback else None
     if pulse_thread:
@@ -143,17 +186,39 @@ def convert_to_staging_wav(source_path, track_id, progress_callback=None):
     return staging_wav
 
 
-def finalize_record(staging_wav, meta, bpm, key, cover_data, cover_mime, progress_callback=None, analysis=None):
+def finalize_record(
+    staging_wav,
+    meta,
+    bpm,
+    key,
+    cover_data,
+    cover_mime,
+    progress_callback=None,
+    analysis=None,
+    *,
+    progress_cover=0.88,
+    progress_meta=0.92,
+):
     meta = normalize_artist_meta(meta)
     final_wav = plan_track_path(meta, bpm=bpm, key=key)
     ensure_parent_dir(final_wav)
 
     if os.path.exists(final_wav):
         os.remove(final_wav)
-    os.replace(staging_wav, final_wav)
+    from library import prepare_new_record, safe_rename
 
-    if progress_callback:
-        progress_callback(0.88, '태그 · 앨범 커버 저장 중...')
+    if not safe_rename(staging_wav, final_wav):
+        raise RuntimeError('WAV 파일 이동 실패 (OneDrive 잠금). 잠시 후 다시 시도하세요.')
+
+    label = f'{meta.get("artist", "")} - {meta.get("title", "")}'.strip(' -')
+    _emit(
+        progress_callback,
+        progress_cover,
+        f'태그 · 앨범 커버 저장 중... · {label}' if label else '태그 · 앨범 커버 저장 중...',
+        stage='cover',
+        track_title=meta.get('title'),
+        track_artist=meta.get('artist'),
+    )
 
     record = {
         'id': meta['id'],
@@ -164,6 +229,7 @@ def finalize_record(staging_wav, meta, bpm, key, cover_data, cover_mime, progres
         'platform': meta['platform'],
         'format': 'WAV',
         'path': final_wav,
+        'local_path': final_wav,
         'bpm': str(bpm) if bpm else '',
         'key': key,
         'genre': meta['genre'],
@@ -172,6 +238,24 @@ def finalize_record(staging_wav, meta, bpm, key, cover_data, cover_mime, progres
     }
     if analysis:
         record['analysis'] = analysis
+    record = prepare_new_record(record)
+    try:
+        from track_metadata import enrich_record_metadata
+
+        def enrich_cb(msg: str) -> None:
+            _emit(
+                progress_callback,
+                progress_meta,
+                f'{msg} · {label}' if label else msg,
+                stage='metadata',
+                track_title=meta.get('title'),
+                track_artist=meta.get('artist'),
+            )
+
+        enrich_record_metadata(record, progress_callback=enrich_cb)
+        final_wav = str(record.get('path') or final_wav)
+    except Exception as exc:
+        print(f'[pipeline] metadata enrich: {exc}')
     write_wav_tags(final_wav, record, cover_data=cover_data, cover_mime=cover_mime or 'image/jpeg')
     save_album_cover_sidecar(final_wav, cover_data, cover_mime)
     cleanup_temp_dir()
@@ -181,8 +265,7 @@ def finalize_record(staging_wav, meta, bpm, key, cover_data, cover_mime, progres
 def process_url_sync(url, progress_callback=None):
     os.makedirs(TEMP_DIR, exist_ok=True)
 
-    if progress_callback:
-        progress_callback(0.05, 'URL 분석 중...')
+    _emit(progress_callback, 0.05, 'URL 분석 중...', stage='listing')
 
     ydl_opts = dict(BASE_YDL_OPTS)
     hook = make_progress_hook(progress_callback)
@@ -197,15 +280,26 @@ def process_url_sync(url, progress_callback=None):
     except yt_dlp.utils.DownloadError as e:
         raise RuntimeError(f'다운로드 실패: {e}') from e
 
-    if progress_callback:
-        progress_callback(0.47, 'WAV 변환 중...')
+    label = f'{meta.get("artist", "")} - {meta.get("title", "")}'.strip(' -')
+    _emit(
+        progress_callback,
+        0.47,
+        f'WAV 변환 중... · {label}' if label else 'WAV 변환 중...',
+        stage='converting',
+        current=1,
+        total=1,
+        track_title=meta.get('title'),
+        track_artist=meta.get('artist'),
+    )
 
     temp_file = find_downloaded_audio(TEMP_DIR, video_id)
     if not temp_file or not os.path.isfile(temp_file):
         raise FileNotFoundError(f'다운로드 파일을 찾을 수 없습니다. (id={video_id})')
 
     try:
-        staging_wav = convert_to_staging_wav(temp_file, video_id, progress_callback)
+        staging_wav = convert_to_staging_wav(
+            temp_file, video_id, progress_callback, label=label
+        )
     finally:
         if os.path.exists(temp_file):
             try:
@@ -213,16 +307,32 @@ def process_url_sync(url, progress_callback=None):
             except OSError:
                 pass
 
-    if progress_callback:
-        progress_callback(0.66, '앨범 커버 가져오는 중...')
+    _emit(
+        progress_callback,
+        0.66,
+        f'앨범 커버 가져오는 중... · {label}' if label else '앨범 커버 가져오는 중...',
+        stage='cover',
+        current=1,
+        total=1,
+        track_title=meta.get('title'),
+        track_artist=meta.get('artist'),
+    )
 
     cover_data, cover_mime = resolve_cover_bytes(meta, TEMP_DIR, video_id)
 
     record = finalize_record(
         staging_wav, meta, '', UNKNOWN, cover_data, cover_mime, progress_callback
     )
-    if progress_callback:
-        progress_callback(1.0, '완료!')
+    _emit(
+        progress_callback,
+        1.0,
+        '완료!',
+        stage='done',
+        current=1,
+        total=1,
+        track_title=meta.get('title'),
+        track_artist=meta.get('artist'),
+    )
     return record
 
 

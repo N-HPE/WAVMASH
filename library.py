@@ -1,16 +1,134 @@
+import json
 import os
 import re
 import shutil
+import sqlite3
 import subprocess
+import time
 import urllib.request
+import uuid
+from typing import Any
 
 import static_ffmpeg
 from mutagen.wave import WAVE
 from mutagen.id3 import TIT2, TPE1, TPE2, TALB, TCON, TBPM, TKEY, TDRC, COMM, APIC
 
-WAV_ROOT = os.path.join(os.path.expanduser('~'), 'OneDrive', 'Desktop', 'WAV')
+from paths import PROJECT_DIR
+from env_loader import ensure_env_loaded
+
+ensure_env_loaded()
+
+from paths import default_wav_root  # noqa: E402
+
+WAV_ROOT = default_wav_root()
 SINGLES_ALBUM = 'Singles'
 UNKNOWN = 'Unknown'
+
+ARCHIVE_JSON_PATH = os.path.join(PROJECT_DIR, 'archive.json')
+TRACK_INDEX_DB_PATH = os.path.join(PROJECT_DIR, 'track_index.db')
+PLAYLISTS_JSON_PATH = os.path.join(PROJECT_DIR, 'playlists.json')
+
+JSON_SKIP_KEYS = frozenset({'cover_data', 'cover_mime'})
+
+ARCHIVE_CORE_KEYS = frozenset({
+    'track_id', 'external_id', 'url', 'platform', 'title', 'artist',
+    'primary_artist', 'album', 'genre', 'year', 'format', 'thumbnail_url', 'analysis',
+    'mix_data',
+})
+
+_INDEX_ROW_KEYS = (
+    'track_id', 'artist', 'title', 'bpm', 'key', 'camelot_key',
+    'energy_level', 'bpm_source', 'local_path', 'url', 'platform', 'mix_data',
+)
+
+DEFAULT_MIX_TRANSITION = {
+    'duration_ms': 6000,
+    'eq_behavior': 'bass_swap',
+    'volume_curve': 'logarithmic',
+}
+
+_CAMELOT_WHEEL = {
+    'B Major': '1B', 'F# Major': '2B', 'C# Major': '3B', 'G# Major': '4B',
+    'D# Major': '5B', 'A# Major': '6B', 'F Major': '7B', 'C Major': '8B',
+    'G Major': '9B', 'D Major': '10B', 'A Major': '11B', 'E Major': '12B',
+    'G# Minor': '1A', 'D# Minor': '2A', 'A# Minor': '3A', 'F Minor': '4A',
+    'C Minor': '5A', 'G Minor': '6A', 'D Minor': '7A', 'A Minor': '8A',
+    'E Minor': '9A', 'B Minor': '10A', 'F# Minor': '11A', 'C# Minor': '12A',
+}
+
+_KEY_COMPACT_RE = re.compile(r'^([A-Ga-g][#b]?)\s+(Major|Minor)$', re.I)
+_ENHARMONIC_COMPACT = {'Db': 'C#', 'Eb': 'D#', 'Gb': 'F#', 'Ab': 'G#', 'Bb': 'A#'}
+_UUID_RE = re.compile(
+    r'^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$',
+    re.I,
+)
+
+
+def safe_rename(
+    src: str,
+    dst: str,
+    *,
+    max_retries: int = 8,
+    delay: float = 0.25,
+) -> bool:
+    """Rename/move with OneDrive WinError 32 retries; copy+delete fallback."""
+    if not src or not dst:
+        return False
+    if os.path.normcase(os.path.abspath(src)) == os.path.normcase(os.path.abspath(dst)):
+        return True
+
+    ensure_parent_dir(dst)
+    last_exc: BaseException | None = None
+
+    for attempt in range(max_retries):
+        try:
+            os.replace(src, dst)
+            return True
+        except PermissionError as exc:
+            last_exc = exc
+            winerr = getattr(exc, 'winerror', None)
+            if winerr == 32 or 'WinError 32' in str(exc):
+                time.sleep(delay * (attempt + 1))
+                continue
+            break
+        except OSError as exc:
+            last_exc = exc
+            if getattr(exc, 'winerror', None) == 32:
+                time.sleep(delay * (attempt + 1))
+                continue
+            break
+
+    try:
+        shutil.copy2(src, dst)
+        for attempt in range(max_retries):
+            try:
+                os.remove(src)
+                return True
+            except PermissionError as exc:
+                last_exc = exc
+                if getattr(exc, 'winerror', None) == 32:
+                    time.sleep(delay * (attempt + 1))
+                    continue
+                break
+            except OSError as exc:
+                last_exc = exc
+                if getattr(exc, 'winerror', None) == 32:
+                    time.sleep(delay * (attempt + 1))
+                    continue
+                break
+        print(
+            f"[Library] 복사 완료, 원본 삭제 실패 (OneDrive 잠금): "
+            f"{os.path.basename(src)} — {last_exc}"
+        )
+        return True
+    except OSError as exc:
+        print(f"[Library] safe_rename 실패: {os.path.basename(src)} — {last_exc or exc}")
+        return False
+
+
+def _safe_replace_file(src: str, dst: str) -> bool:
+    """Backward-compatible alias for safe_rename."""
+    return safe_rename(src, dst)
 
 # Split featured / collaborator strings into individual artist names.
 _ARTIST_SEP_RE = re.compile(r'\s*[/,;|]\s*')
@@ -248,7 +366,8 @@ def upgrade_record_key(rec: dict, *, reanalyze: bool = False) -> bool:
         ensure_parent_dir(new_path)
         if os.path.exists(new_path):
             os.remove(new_path)
-        os.replace(path, new_path)
+        if not _safe_replace_file(path, new_path):
+            return True
         rec['path'] = new_path
         path = new_path
 
@@ -256,46 +375,22 @@ def upgrade_record_key(rec: dict, *, reanalyze: bool = False) -> bool:
     return True
 
 
-def apply_bpm_key_to_record(rec: dict, bpm: int | str | None, key: str | None) -> bool:
+def apply_bpm_key_to_record(
+    rec: dict,
+    bpm: int | float | str | None,
+    key: str | None,
+    *,
+    bpm_source: str | None = None,
+    **kwargs: Any,
+) -> bool:
     """Apply external BPM/key lookup to a record; rename WAV and refresh tags."""
-    changed = False
-    path = str(rec.get('path') or '')
-
-    try:
-        bpm_val = int(round(float(bpm))) if bpm not in (None, '', 0, '0') else 0
-    except (TypeError, ValueError):
-        bpm_val = 0
-    if bpm_val > 0:
-        new_bpm = str(bpm_val)
-        if str(rec.get('bpm') or '') != new_bpm:
-            rec['bpm'] = new_bpm
-            changed = True
-
-    if key and key != UNKNOWN and key_has_mode(key):
-        if str(rec.get('key') or '') != key:
-            rec['key'] = key
-            changed = True
-
-    if not changed or not path or not os.path.isfile(path):
-        return changed
-
-    meta = {
-        'artist': rec.get('artist', UNKNOWN),
-        'primary_artist': rec.get('primary_artist'),
-        'album': rec.get('album', SINGLES_ALBUM),
-        'title': rec.get('title', UNKNOWN),
-    }
-    new_path = plan_track_path(meta, bpm=rec.get('bpm'), key=rec.get('key'))
-    if os.path.normcase(path) != os.path.normcase(new_path):
-        ensure_parent_dir(new_path)
-        if os.path.exists(new_path):
-            os.remove(new_path)
-        os.replace(path, new_path)
-        rec['path'] = new_path
-        path = new_path
-
-    write_wav_tags(path, rec)
-    return True
+    return apply_track_metadata(
+        rec,
+        bpm=bpm,
+        key=key,
+        bpm_source=bpm_source,
+        **kwargs,
+    )
 
 
 def needs_bpm_key_update(rec: dict) -> bool:
@@ -368,7 +463,8 @@ def apply_spotify_metadata_to_record(
         ensure_parent_dir(new_path)
         if os.path.exists(new_path):
             os.remove(new_path)
-        os.replace(path, new_path)
+        if not _safe_replace_file(path, new_path):
+            return changed
         rec['path'] = new_path
         path = new_path
         changed = True
@@ -379,11 +475,763 @@ def apply_spotify_metadata_to_record(
     return True
 
 
+def format_key_compact(key: str | None) -> str:
+    """Convert ``F# Minor`` / ``C Major`` to DJ compact form ``F#m`` / ``CM``."""
+    raw = str(key or '').strip()
+    if not raw or raw == UNKNOWN:
+        return 'Unknown Key'
+    match = _KEY_COMPACT_RE.match(raw)
+    if match:
+        pitch = match.group(1)
+        pitch = pitch[0].upper() + pitch[1:]
+        if len(pitch) >= 2 and pitch[1] in '#b':
+            pitch = _ENHARMONIC_COMPACT.get(pitch[:2], pitch[:2]) + pitch[2:]
+        elif pitch in _ENHARMONIC_COMPACT:
+            pitch = _ENHARMONIC_COMPACT[pitch]
+        return f"{pitch}m" if match.group(2).lower() == 'minor' else f"{pitch}M"
+    return sanitize_path_part(raw, 'Unknown Key')
+
+
+def camelot_from_key(key: str | None) -> str:
+    return _CAMELOT_WHEEL.get(str(key or '').strip(), '')
+
+
+def format_bpm_storage(bpm: Any) -> str:
+    """Store BPM for records/tags; keeps MIK-style decimals when needed."""
+    try:
+        value = float(bpm)
+    except (TypeError, ValueError):
+        return ''
+    if value <= 0:
+        return ''
+    rounded = round(value, 3)
+    if abs(rounded - round(rounded)) < 0.001:
+        return str(int(round(rounded)))
+    text = f"{rounded:.3f}".rstrip('0').rstrip('.')
+    return text or ''
+
+
+def beat_offset_from_record(record: dict[str, Any]) -> float:
+    analysis = record.get('analysis')
+    if isinstance(analysis, dict):
+        for key in ('mik_beat_offset_sec', 'beat_offset_sec'):
+            try:
+                return float(analysis.get(key) or 0)
+            except (TypeError, ValueError):
+                continue
+    return 0.0
+
+
+def normalize_bpm_source(source: str | None) -> str:
+    src = str(source or '').strip().lower()
+    if not src:
+        return ''
+    if 'mik' in src:
+        return 'mik'
+    if 'tag' in src:
+        return 'tags'
+    if src in ('api', 'getsongbpm', 'verified'):
+        return 'api' if src == 'getsongbpm' else src
+    if src in ('analyzed', 'local', 'librosa', 'audioflux'):
+        return 'analyzed'
+    if 'getsongbpm' in src and 'local' in src:
+        return 'analyzed'
+    if 'getsongbpm' in src:
+        return 'api'
+    if 'local' in src or 'analy' in src:
+        return 'analyzed'
+    return src if src in ('api', 'analyzed', 'verified', 'mik', 'tags') else ''
+
+
+def apply_track_metadata(
+    rec: dict,
+    *,
+    bpm: int | float | str | None = None,
+    key: str | None = None,
+    camelot_key: str | None = None,
+    energy_level: int | None = None,
+    bpm_source: str | None = None,
+    beat_offset_sec: float | None = None,
+) -> bool:
+    """Apply BPM/key/energy (and optional beat phase) from MIK, tags, or APIs."""
+    from mik_metadata import key_from_camelot
+
+    changed = False
+    path = str(rec.get('path') or rec.get('local_path') or '')
+
+    bpm_text = format_bpm_storage(bpm) if bpm not in (None, '', 0, '0') else ''
+    if bpm_text and str(rec.get('bpm') or '') != bpm_text:
+        rec['bpm'] = bpm_text
+        changed = True
+
+    resolved_key = str(key or '').strip()
+    resolved_camelot = str(camelot_key or rec.get('camelot_key') or '').strip().upper()
+    if not resolved_key or resolved_key == UNKNOWN or not key_has_mode(resolved_key):
+        from_mik = key_from_camelot(resolved_camelot)
+        if from_mik:
+            resolved_key = from_mik
+    if resolved_key and resolved_key != UNKNOWN and key_has_mode(resolved_key):
+        if str(rec.get('key') or '') != resolved_key:
+            rec['key'] = resolved_key
+            changed = True
+        camelot = camelot_from_key(resolved_key) or resolved_camelot
+        if camelot and rec.get('camelot_key') != camelot:
+            rec['camelot_key'] = camelot
+            changed = True
+    elif resolved_camelot and rec.get('camelot_key') != resolved_camelot:
+        rec['camelot_key'] = resolved_camelot
+        changed = True
+
+    if energy_level is not None:
+        try:
+            lvl = int(energy_level)
+            if 1 <= lvl <= 5 and rec.get('energy_level') != lvl:
+                rec['energy_level'] = lvl
+                changed = True
+        except (TypeError, ValueError):
+            pass
+
+    if bpm_source:
+        normalized = normalize_bpm_source(bpm_source)
+        if normalized and rec.get('bpm_source') != normalized:
+            rec['bpm_source'] = normalized
+            changed = True
+
+    if beat_offset_sec is not None:
+        try:
+            offset = float(beat_offset_sec)
+        except (TypeError, ValueError):
+            offset = None
+        if offset is not None:
+            analysis = dict(rec.get('analysis') or {}) if isinstance(rec.get('analysis'), dict) else {}
+            if analysis.get('mik_beat_offset_sec') != offset:
+                analysis['mik_beat_offset_sec'] = round(offset, 4)
+                rec['analysis'] = analysis
+                changed = True
+
+    if not changed:
+        return False
+
+    if path and os.path.isfile(path):
+        meta = {
+            'artist': rec.get('artist', UNKNOWN),
+            'primary_artist': rec.get('primary_artist'),
+            'album': rec.get('album', SINGLES_ALBUM),
+            'title': rec.get('title', UNKNOWN),
+        }
+        new_path = plan_track_path(meta, bpm=rec.get('bpm'), key=rec.get('key'))
+        if os.path.normcase(path) != os.path.normcase(new_path):
+            ensure_parent_dir(new_path)
+            if os.path.exists(new_path):
+                os.remove(new_path)
+            if not safe_rename(path, new_path):
+                sync_record_index(rec)
+                return True
+            rec['path'] = new_path
+            rec['local_path'] = new_path
+            path = new_path
+        write_wav_tags(path, rec)
+
+    sync_record_index(rec)
+    return True
+
+
+def new_track_id() -> str:
+    return str(uuid.uuid4())
+
+
+def _is_uuid(value: str | None) -> bool:
+    return bool(value and _UUID_RE.match(str(value)))
+
+
+def ensure_track_id(record: dict[str, Any]) -> str:
+    """Assign a UUID ``track_id``; keep legacy platform id in ``external_id``."""
+    existing = str(record.get('track_id') or '').strip()
+    if _is_uuid(existing):
+        record['track_id'] = existing
+        record['id'] = existing
+        return existing
+
+    legacy = str(record.get('id') or '').strip()
+    if _is_uuid(legacy):
+        record['track_id'] = legacy
+        record['id'] = legacy
+        return legacy
+
+    platform_id = legacy or str(record.get('external_id') or '').strip()
+    track_id = new_track_id()
+    record['track_id'] = track_id
+    record['id'] = track_id
+    if platform_id and not _is_uuid(platform_id):
+        record['external_id'] = platform_id
+    return track_id
+
+
+def energy_level_from_record(record: dict[str, Any]) -> int:
+    raw = record.get('energy_level')
+    if raw is not None:
+        try:
+            level = int(raw)
+            if 1 <= level <= 5:
+                return level
+        except (TypeError, ValueError):
+            pass
+    analysis = record.get('analysis')
+    if isinstance(analysis, dict):
+        for key in ('energy_level', 'energy'):
+            try:
+                level = int(analysis.get(key) or 0)
+                if 1 <= level <= 5:
+                    return level
+            except (TypeError, ValueError):
+                continue
+    return 0
+
+
+def default_mix_data() -> dict[str, Any]:
+    return {
+        'cues': {'mix_in': 0, 'mix_out': 0},
+        'transition': dict(DEFAULT_MIX_TRANSITION),
+    }
+
+
+def normalize_mix_data(data: dict[str, Any] | None) -> dict[str, Any]:
+    base = default_mix_data()
+    if not isinstance(data, dict):
+        return base
+
+    cues = data.get('cues')
+    if isinstance(cues, dict):
+        for key in ('mix_in', 'mix_out'):
+            try:
+                base['cues'][key] = max(0, int(cues.get(key) or 0))
+            except (TypeError, ValueError):
+                pass
+
+    transition = data.get('transition')
+    if isinstance(transition, dict):
+        try:
+            base['transition']['duration_ms'] = max(
+                500, int(transition.get('duration_ms') or DEFAULT_MIX_TRANSITION['duration_ms'])
+            )
+        except (TypeError, ValueError):
+            pass
+        eq = str(transition.get('eq_behavior') or DEFAULT_MIX_TRANSITION['eq_behavior'])
+        if eq in ('bass_swap', 'none'):
+            base['transition']['eq_behavior'] = eq
+        curve = str(transition.get('volume_curve') or DEFAULT_MIX_TRANSITION['volume_curve'])
+        if curve in ('linear', 'logarithmic'):
+            base['transition']['volume_curve'] = curve
+    return base
+
+
+def parse_mix_data(raw: Any) -> dict[str, Any]:
+    if isinstance(raw, dict):
+        return normalize_mix_data(raw)
+    if isinstance(raw, str) and raw.strip():
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            return default_mix_data()
+        if isinstance(parsed, dict):
+            return normalize_mix_data(parsed)
+    return default_mix_data()
+
+
+def mix_data_to_json(data: dict[str, Any]) -> str:
+    return json.dumps(normalize_mix_data(data), ensure_ascii=False, separators=(',', ':'))
+
+
+def mix_data_from_record(record: dict[str, Any]) -> dict[str, Any]:
+    """Resolve mix_data from explicit field, SQLite JSON, or legacy analysis cues (sec → ms)."""
+    explicit = record.get('mix_data')
+    if explicit:
+        md = parse_mix_data(explicit)
+        if md['cues']['mix_in'] or md['cues']['mix_out']:
+            return md
+
+    analysis = record.get('analysis')
+    if isinstance(analysis, dict):
+        data = default_mix_data()
+        cue_in = analysis.get('cue_in')
+        cue_out = analysis.get('cue_out')
+        duration = analysis.get('duration')
+        if cue_in is not None:
+            try:
+                data['cues']['mix_in'] = max(0, int(float(cue_in) * 1000))
+            except (TypeError, ValueError):
+                pass
+        if cue_out is not None:
+            try:
+                data['cues']['mix_out'] = max(0, int(float(cue_out) * 1000))
+            except (TypeError, ValueError):
+                pass
+        elif duration is not None:
+            try:
+                data['cues']['mix_out'] = max(0, int(float(duration) * 1000))
+            except (TypeError, ValueError):
+                pass
+        return data
+
+    return default_mix_data()
+
+
+def clear_record_cues(record: dict[str, Any]) -> None:
+    """Remove mix IN/OUT cues from a track record."""
+    record['mix_data'] = default_mix_data()
+    analysis = dict(record.get('analysis') or {})
+    analysis.pop('cue_in', None)
+    analysis.pop('cue_out', None)
+    record['analysis'] = analysis
+
+
+def clear_all_record_cues(records: list[dict[str, Any]]) -> int:
+    """Clear mix cues on every track that has any. Returns count cleared."""
+    cleared = 0
+    for rec in records:
+        md = mix_data_from_record(rec)
+        analysis = rec.get('analysis') or {}
+        if (
+            md['cues']['mix_in']
+            or md['cues']['mix_out']
+            or 'cue_in' in analysis
+            or 'cue_out' in analysis
+        ):
+            clear_record_cues(rec)
+            cleared += 1
+    return cleared
+
+
+def remove_record_mix_cue(record: dict[str, Any], *, remove_in: bool = False, remove_out: bool = False) -> None:
+    """Remove one or both mix cues while keeping the other fields intact."""
+    md = mix_data_from_record(record)
+    analysis = dict(record.get('analysis') or {})
+    if remove_out:
+        md['cues']['mix_out'] = 0
+        analysis.pop('cue_out', None)
+    if remove_in:
+        md['cues']['mix_in'] = 0
+        analysis.pop('cue_in', None)
+    record['mix_data'] = md
+    record['analysis'] = analysis
+
+
+def update_record_mix_cues(
+    record: dict[str, Any],
+    *,
+    mix_in_ms: int | None = None,
+    mix_out_ms: int | None = None,
+    transition: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Update mix_data and keep legacy analysis cue_in/out (seconds) in sync."""
+    md = mix_data_from_record(record)
+    if mix_in_ms is not None:
+        md['cues']['mix_in'] = max(0, int(mix_in_ms))
+    if mix_out_ms is not None:
+        md['cues']['mix_out'] = max(0, int(mix_out_ms))
+    if transition:
+        md['transition'].update(normalize_mix_data({'transition': transition})['transition'])
+    record['mix_data'] = md
+
+    analysis = dict(record.get('analysis') or {})
+    if mix_in_ms is not None:
+        analysis['cue_in'] = round(mix_in_ms / 1000.0, 3)
+    if mix_out_ms is not None:
+        analysis['cue_out'] = round(mix_out_ms / 1000.0, 3)
+    if analysis:
+        record['analysis'] = analysis
+    return md
+
+
+def sanitize_record_for_db(record: dict[str, Any]) -> dict[str, Any]:
+    return {
+        k: v
+        for k, v in record.items()
+        if k not in JSON_SKIP_KEYS and not isinstance(v, (bytes, bytearray))
+    }
+
+
+def _parse_bpm_int(bpm: Any) -> int:
+    try:
+        value = int(round(float(bpm)))
+        return value if value > 0 else 0
+    except (TypeError, ValueError):
+        return 0
+
+
+def record_to_index_row(record: dict[str, Any]) -> dict[str, Any]:
+    ensure_track_id(record)
+    local_path = str(record.get('local_path') or record.get('path') or '')
+    key = str(record.get('key') or '')
+    bpm = _parse_bpm_int(record.get('bpm'))
+    return {
+        'track_id': record['track_id'],
+        'artist': str(record.get('artist') or ''),
+        'title': str(record.get('title') or ''),
+        'bpm': bpm,
+        'key': key,
+        'camelot_key': str(record.get('camelot_key') or camelot_from_key(key)),
+        'energy_level': energy_level_from_record(record),
+        'bpm_source': normalize_bpm_source(str(record.get('bpm_source') or '')),
+        'local_path': local_path,
+        'url': str(record.get('url') or ''),
+        'platform': str(record.get('platform') or ''),
+        'mix_data': mix_data_to_json(mix_data_from_record(record)),
+    }
+
+
+def record_to_archive_core(record: dict[str, Any]) -> dict[str, Any]:
+    ensure_track_id(record)
+    core = sanitize_record_for_db(record)
+    allowed = set(ARCHIVE_CORE_KEYS)
+    stripped = {k: v for k, v in core.items() if k in allowed}
+    for key in ARCHIVE_CORE_KEYS:
+        if key not in stripped and key in core:
+            stripped[key] = core[key]
+    if 'track_id' not in stripped:
+        stripped['track_id'] = record['track_id']
+    return stripped
+
+
+def merge_core_and_index(core: dict[str, Any], index: dict[str, Any]) -> dict[str, Any]:
+    merged = dict(core)
+    merged.update(index)
+    track_id = str(core.get('track_id') or index.get('track_id') or '')
+    merged['track_id'] = track_id
+    merged['id'] = track_id
+    local_path = str(index.get('local_path') or core.get('local_path') or core.get('path') or '')
+    merged['local_path'] = local_path
+    merged['path'] = local_path
+    bpm_int = _parse_bpm_int(index.get('bpm', merged.get('bpm')))
+    merged['bpm'] = str(bpm_int) if bpm_int else str(merged.get('bpm') or '')
+    merged['key'] = str(index.get('key') or merged.get('key') or '')
+    merged['camelot_key'] = str(
+        index.get('camelot_key') or merged.get('camelot_key') or camelot_from_key(merged['key'])
+    )
+    merged['bpm_source'] = normalize_bpm_source(
+        str(index.get('bpm_source') or merged.get('bpm_source') or '')
+    )
+    merged['energy_level'] = int(index.get('energy_level') or energy_level_from_record(merged))
+    merged['url'] = str(index.get('url') or merged.get('url') or '')
+    merged['platform'] = str(index.get('platform') or merged.get('platform') or '')
+    merged['mix_data'] = mix_data_from_record({**merged, 'mix_data': index.get('mix_data')})
+    return merged
+
+
+class TrackIndexDB:
+    """Lightweight SQLite cache for fast UI search/sort."""
+
+    _SCHEMA = """
+    CREATE TABLE IF NOT EXISTS tracks (
+        track_id TEXT PRIMARY KEY NOT NULL,
+        artist TEXT NOT NULL DEFAULT '',
+        title TEXT NOT NULL DEFAULT '',
+        bpm INTEGER NOT NULL DEFAULT 0,
+        key TEXT NOT NULL DEFAULT '',
+        camelot_key TEXT NOT NULL DEFAULT '',
+        energy_level INTEGER NOT NULL DEFAULT 0,
+        bpm_source TEXT NOT NULL DEFAULT '',
+        local_path TEXT NOT NULL DEFAULT '',
+        url TEXT NOT NULL DEFAULT '',
+        platform TEXT NOT NULL DEFAULT '',
+        mix_data TEXT NOT NULL DEFAULT '{}'
+    );
+    CREATE INDEX IF NOT EXISTS idx_tracks_artist ON tracks(artist);
+    CREATE INDEX IF NOT EXISTS idx_tracks_bpm ON tracks(bpm);
+    CREATE INDEX IF NOT EXISTS idx_tracks_title ON tracks(title);
+    CREATE INDEX IF NOT EXISTS idx_tracks_camelot ON tracks(camelot_key);
+    """
+
+    def __init__(self, db_path: str | None = None) -> None:
+        self.db_path = db_path or TRACK_INDEX_DB_PATH
+
+    def _connect(self) -> sqlite3.Connection:
+        conn = sqlite3.connect(self.db_path, timeout=30)
+        conn.row_factory = sqlite3.Row
+        conn.execute('PRAGMA journal_mode=WAL')
+        conn.execute('PRAGMA synchronous=NORMAL')
+        return conn
+
+    def ensure_schema(self) -> None:
+        with self._connect() as conn:
+            conn.executescript(self._SCHEMA)
+            self._ensure_mix_data_column(conn)
+
+    def _ensure_mix_data_column(self, conn: sqlite3.Connection) -> None:
+        cols = {row[1] for row in conn.execute('PRAGMA table_info(tracks)')}
+        if 'mix_data' not in cols:
+            conn.execute(
+                "ALTER TABLE tracks ADD COLUMN mix_data TEXT NOT NULL DEFAULT '{}'"
+            )
+
+    def upsert(self, row: dict[str, Any]) -> None:
+        self.ensure_schema()
+        payload = {k: row.get(k, '') for k in _INDEX_ROW_KEYS}
+        payload['bpm'] = int(payload.get('bpm') or 0)
+        payload['energy_level'] = int(payload.get('energy_level') or 0)
+        if not str(payload.get('mix_data') or '').strip():
+            payload['mix_data'] = mix_data_to_json(default_mix_data())
+        elif not isinstance(payload.get('mix_data'), str):
+            payload['mix_data'] = mix_data_to_json(parse_mix_data(payload['mix_data']))
+        columns = ', '.join(_INDEX_ROW_KEYS)
+        placeholders = ', '.join('?' for _ in _INDEX_ROW_KEYS)
+        updates = ', '.join(f'{k}=excluded.{k}' for k in _INDEX_ROW_KEYS if k != 'track_id')
+        sql = (
+            f'INSERT INTO tracks ({columns}) VALUES ({placeholders}) '
+            f'ON CONFLICT(track_id) DO UPDATE SET {updates}'
+        )
+        with self._connect() as conn:
+            conn.execute(sql, tuple(payload[k] for k in _INDEX_ROW_KEYS))
+
+    def delete(self, track_id: str) -> None:
+        self.ensure_schema()
+        with self._connect() as conn:
+            conn.execute('DELETE FROM tracks WHERE track_id = ?', (track_id,))
+
+    def fetch_all(self) -> list[dict[str, Any]]:
+        self.ensure_schema()
+        with self._connect() as conn:
+            rows = conn.execute(
+                f'SELECT {", ".join(_INDEX_ROW_KEYS)} FROM tracks ORDER BY artist, title'
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def fetch_one(self, track_id: str) -> dict[str, Any] | None:
+        self.ensure_schema()
+        with self._connect() as conn:
+            row = conn.execute(
+                f'SELECT {", ".join(_INDEX_ROW_KEYS)} FROM tracks WHERE track_id = ?',
+                (track_id,),
+            ).fetchone()
+        return dict(row) if row else None
+
+
+def sync_record_index(record: dict[str, Any]) -> None:
+    TrackIndexDB().upsert(record_to_index_row(record))
+
+
+def _load_archive_json_raw() -> list[dict[str, Any]]:
+    if not os.path.exists(ARCHIVE_JSON_PATH):
+        return []
+    try:
+        with open(ARCHIVE_JSON_PATH, 'r', encoding='utf-8') as handle:
+            data = json.load(handle)
+        if not isinstance(data, list):
+            return []
+        return [item for item in data if isinstance(item, dict)]
+    except Exception:
+        broken = ARCHIVE_JSON_PATH + '.broken'
+        try:
+            os.replace(ARCHIVE_JSON_PATH, broken)
+        except OSError:
+            pass
+        return []
+
+
+def _save_archive_json(cores: list[dict[str, Any]]) -> None:
+    payload = [record_to_archive_core(core) for core in cores]
+    tmp = ARCHIVE_JSON_PATH + '.tmp'
+    with open(tmp, 'w', encoding='utf-8') as handle:
+        json.dump(payload, handle, indent=4, ensure_ascii=False)
+    if not safe_rename(tmp, ARCHIVE_JSON_PATH):
+        with open(ARCHIVE_JSON_PATH, 'w', encoding='utf-8') as handle:
+            json.dump(payload, handle, indent=4, ensure_ascii=False)
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+
+
+def _looks_like_legacy_archive(records: list[dict[str, Any]]) -> bool:
+    if not records:
+        return False
+    if os.path.exists(TRACK_INDEX_DB_PATH):
+        return False
+    sample = records[0]
+    return bool(sample.get('path') or sample.get('bpm') or sample.get('key'))
+
+
+def _remap_playlist_track_ids(id_map: dict[str, str]) -> None:
+    if not id_map or not os.path.isfile(PLAYLISTS_JSON_PATH):
+        return
+    try:
+        with open(PLAYLISTS_JSON_PATH, 'r', encoding='utf-8') as handle:
+            playlists = json.load(handle)
+    except Exception:
+        return
+    if not isinstance(playlists, dict):
+        return
+    changed = False
+    for name, ids in playlists.items():
+        if not isinstance(ids, list):
+            continue
+        new_ids: list[str] = []
+        for tid in ids:
+            mapped = id_map.get(str(tid), str(tid))
+            if mapped != tid:
+                changed = True
+            if mapped and mapped not in new_ids:
+                new_ids.append(mapped)
+        playlists[name] = new_ids
+    if not changed:
+        return
+    with open(PLAYLISTS_JSON_PATH, 'w', encoding='utf-8') as handle:
+        json.dump(playlists, handle, indent=4, ensure_ascii=False)
+
+
+def _migrate_legacy_records(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    id_map: dict[str, str] = {}
+    migrated: list[dict[str, Any]] = []
+    index_db = TrackIndexDB()
+    index_db.ensure_schema()
+
+    for raw in records:
+        rec = sanitize_record_for_db(raw)
+        old_id = str(rec.get('id') or '').strip()
+        if not rec.get('track_id'):
+            ensure_track_id(rec)
+        if old_id and old_id != rec['track_id']:
+            id_map[old_id] = rec['track_id']
+        if rec.get('path') and not rec.get('local_path'):
+            rec['local_path'] = rec['path']
+        if rec.get('key') and not rec.get('camelot_key'):
+            rec['camelot_key'] = camelot_from_key(str(rec['key']))
+        if rec.get('analysis') and not rec.get('energy_level'):
+            rec['energy_level'] = energy_level_from_record(rec)
+        index_db.upsert(record_to_index_row(rec))
+        migrated.append(merge_core_and_index(record_to_archive_core(rec), record_to_index_row(rec)))
+
+    _remap_playlist_track_ids(id_map)
+    _save_archive_json([record_to_archive_core(rec) for rec in migrated])
+    print(f'[Library] legacy archive.json → hybrid storage ({len(migrated)} tracks)')
+    return migrated
+
+
+def load_library_records() -> list[dict[str, Any]]:
+    raw = _load_archive_json_raw()
+    if _looks_like_legacy_archive(raw):
+        return _migrate_legacy_records(raw)
+
+    index_db = TrackIndexDB()
+    index_db.ensure_schema()
+    index_by_id = {row['track_id']: row for row in index_db.fetch_all()}
+
+    merged: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for core in raw:
+        core = sanitize_record_for_db(core)
+        track_id = str(core.get('track_id') or core.get('id') or '').strip()
+        if not track_id:
+            track_id = ensure_track_id(core)
+        core['track_id'] = track_id
+        index_row = index_by_id.get(track_id)
+        if index_row:
+            merged.append(merge_core_and_index(core, index_row))
+        else:
+            fallback = record_to_index_row(core)
+            index_db.upsert(fallback)
+            merged.append(merge_core_and_index(core, fallback))
+        seen.add(track_id)
+
+    for track_id, index_row in index_by_id.items():
+        if track_id in seen:
+            continue
+        merged.append(merge_core_and_index({'track_id': track_id}, index_row))
+
+    return merged
+
+
+def save_library_records(records: list[dict[str, Any]]) -> None:
+    cores: list[dict[str, Any]] = []
+    index_db = TrackIndexDB()
+    for record in records:
+        rec = sanitize_record_for_db(record)
+        ensure_track_id(rec)
+        if rec.get('path') and not rec.get('local_path'):
+            rec['local_path'] = rec['path']
+        cores.append(record_to_archive_core(rec))
+        index_db.upsert(record_to_index_row(rec))
+    _save_archive_json(cores)
+
+
+def upsert_library_record(
+    records: list[dict[str, Any]],
+    record: dict[str, Any],
+    *,
+    prepend: bool = False,
+) -> list[dict[str, Any]]:
+    record = sanitize_record_for_db(record)
+    ensure_track_id(record)
+    if record.get('path') and not record.get('local_path'):
+        record['local_path'] = record['path']
+    track_id = record['track_id']
+    existing = next((r for r in records if str(r.get('track_id') or r.get('id')) == track_id), None)
+    if existing:
+        existing.update(record)
+        merged = existing
+        if prepend:
+            records = [r for r in records if r is not existing]
+            records.insert(0, merged)
+    else:
+        if prepend:
+            records.insert(0, record)
+        else:
+            records.append(record)
+        merged = record
+    sync_record_index(merged)
+    _save_archive_json([record_to_archive_core(r) for r in records])
+    return records
+
+
+def move_records_to_front(records: list[dict[str, Any]], track_ids: list[str]) -> list[dict[str, Any]]:
+    """Reorder library so the given track IDs appear at the top (stable order within the group)."""
+    order = {str(tid): i for i, tid in enumerate(track_ids) if tid}
+    if not order:
+        return records
+    front: list[tuple[int, dict[str, Any]]] = []
+    rest: list[dict[str, Any]] = []
+    for rec in records:
+        rid = str(rec.get('track_id') or rec.get('id') or '')
+        if rid in order:
+            front.append((order[rid], rec))
+        else:
+            rest.append(rec)
+    front.sort(key=lambda item: item[0])
+    return [rec for _, rec in front] + rest
+
+
+def delete_library_record(records: list[dict[str, Any]], track_id: str) -> list[dict[str, Any]]:
+    records = [r for r in records if str(r.get('track_id') or r.get('id')) != str(track_id)]
+    try:
+        TrackIndexDB().delete(str(track_id))
+    except sqlite3.Error as exc:
+        print(f'[Library] index delete failed: {exc}')
+    _save_archive_json([record_to_archive_core(r) for r in records])
+    return records
+
+
+def prepare_new_record(record: dict[str, Any], *, bpm_source: str = '') -> dict[str, Any]:
+    """Normalize a freshly downloaded track for hybrid storage."""
+    ensure_track_id(record)
+    path = str(record.get('path') or record.get('local_path') or '')
+    record['local_path'] = path
+    record['path'] = path
+    if bpm_source:
+        record['bpm_source'] = normalize_bpm_source(bpm_source)
+    key = str(record.get('key') or '')
+    if key and key != UNKNOWN:
+        record['camelot_key'] = camelot_from_key(key)
+    record['energy_level'] = energy_level_from_record(record)
+    sync_record_index(record)
+    return record
+
+
 def plan_track_path(meta, bpm=None, key=None):
     meta = normalize_artist_meta(meta)
     album_dir = os.path.join(WAV_ROOT, folder_artist(meta), meta['album'])
-    bpm_part = f'{bpm} BPM' if bpm else 'Unknown BPM'
-    key_part = key or 'Unknown Key'
+    bpm_int = _parse_bpm_int(bpm)
+    bpm_part = str(bpm_int) if bpm_int else 'Unknown'
+    key_part = format_key_compact(key)
     filename = sanitize_path_part(f'{bpm_part} - {key_part} - {meta["title"]}', meta['title'])
     if not filename.lower().endswith('.wav'):
         filename = f'{filename}.wav'
@@ -673,7 +1521,11 @@ def _write_riff_info_with_ffmpeg(file_path, record):
         if result.returncode != 0:
             return
 
-        os.replace(tmp, file_path)
+        if not safe_rename(tmp, file_path):
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
     except Exception:
         # RIFF INFO 쓰기 실패는 치명적이지 않음
         try:
@@ -833,8 +1685,10 @@ def relocate_record_file(rec: dict) -> bool:
     new_album = os.path.dirname(new_path)
     _move_album_cover_sidecar(old_album, new_album)
     cover_data, cover_mime = read_cover_bytes_for_wav(path)
-    os.replace(path, new_path)
+    if not safe_rename(path, new_path):
+        return False
     rec['path'] = new_path
+    rec['local_path'] = new_path
     rec['artist'] = meta['artist']
     rec['primary_artist'] = meta['primary_artist']
     _remove_orphan_album_sidecars(old_album)
@@ -842,6 +1696,7 @@ def relocate_record_file(rec: dict) -> bool:
     write_wav_tags(new_path, rec, cover_data=cover_data, cover_mime=cover_mime or 'image/jpeg')
     if cover_data and not find_cover_sidecar(new_path):
         save_album_cover_sidecar(new_path, cover_data, cover_mime)
+    sync_record_index(rec)
     return True
 
 

@@ -1,13 +1,52 @@
+# Secrets & local env
 .env
+.env.local
+.env.*.local
+
+# Python
 __pycache__/
 *.py[cod]
+*.egg-info/
+.venv/
+venv/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
+# Logs
 *.log
 desktop_app.log
+
+# Local library / index (machine-specific — do not commit)
 archive.json
 archive.json.broken
 playlists.json
-.venv/
-venv/
+spotify_sync.json
+cover_colors.json
+cover_colors.json.tmp
+track_index.db
+track_index.db-*
+.thumb_cache/
+mik_export/
+data/
+
+# Build / package
 dist/
 build/
-*.egg-info/
+*.spec
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Editor
+.idea/
+.vscode/
+*.swp
+*~
+
+# Frontend (also covered by web/.gitignore)
+web/node_modules/
+web/.next/
+web/out/

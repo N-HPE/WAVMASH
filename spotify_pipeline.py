@@ -4,6 +4,7 @@ import os
 import re
 import subprocess
 import sys
+import threading
 from pathlib import Path
 
 from mutagen.id3 import ID3
@@ -11,11 +12,17 @@ from mutagen.id3 import ID3
 from desktop_app.archive_store import load_archive
 from library import SINGLES_ALBUM, UNKNOWN, display_artists, normalize_artist_meta, sanitize_path_part
 from env_loader import ensure_env_loaded
-from spotify_metadata import init_spotify_client
+from spotify_metadata import (
+    init_spotify_client,
+    mark_rate_limited,
+    reset_spotify_client,
+    spotify_track_id,
+)
 
 ensure_env_loaded()
 from pipeline import (
     TEMP_DIR,
+    _emit,
     convert_to_staging_wav,
     finalize_record,
     cleanup_temp_dir,
@@ -26,22 +33,95 @@ SPOTIFY_URL_RE = re.compile(
     re.IGNORECASE,
 )
 SPOTIFY_TRACK_ID_RE = re.compile(r'^[a-zA-Z0-9]{22}$')
+SPOTIFY_URI_RE = re.compile(
+    r'^spotify:(track|album|playlist|artist):([a-zA-Z0-9]+)',
+    re.IGNORECASE,
+)
+
+
+def normalize_spotify_url(url: str) -> str:
+    """Accept https links, ``spotify:track:…`` URIs, and strip ``?si=`` params."""
+    raw = (url or "").strip()
+    m = SPOTIFY_URI_RE.match(raw)
+    if m:
+        kind, sid = m.group(1).lower(), m.group(2)
+        return f"https://open.spotify.com/{kind}/{sid}"
+    if SPOTIFY_URL_RE.search(raw):
+        m2 = re.search(
+            r'(https?://(?:open\.)?spotify\.com/(?:track|album|playlist|artist)/[a-zA-Z0-9]+)',
+            raw,
+            re.IGNORECASE,
+        )
+        if m2:
+            return m2.group(1)
+    return raw
 
 
 def is_spotify_url(url: str) -> bool:
-    return bool(SPOTIFY_URL_RE.search((url or '').strip()))
+    raw = (url or "").strip()
+    return bool(SPOTIFY_URL_RE.search(raw) or SPOTIFY_URI_RE.match(raw))
 
 
 def _ensure_spotify_client() -> None:
-    init_spotify_client()
+    if init_spotify_client():
+        return
+    if init_spotify_client(force=True, prefer_free=True):
+        return
+    raise RuntimeError(
+        "Spotify 클라이언트 초기화 실패. "
+        "인터넷 연결을 확인하거나 .env의 SPOTIFY_CLIENT_ID / SPOTIFY_CLIENT_SECRET을 확인해 보세요."
+    )
+
+
+def _spotify_resource_kind(url: str) -> str | None:
+    m = re.search(r'open\.spotify\.com/(track|album|playlist|artist)/', url, re.IGNORECASE)
+    return m.group(1).lower() if m else None
+
+
+def _is_spotify_rate_error(exc: Exception) -> bool:
+    msg = str(exc).strip().lower()
+    return "429" in str(exc) or "rate" in msg or "too many" in msg
 
 
 def list_spotify_songs(url: str) -> list:
     """Return spotdl ``Song`` objects for a Spotify URL (track / album / playlist)."""
-    _ensure_spotify_client()
     from spotdl.utils.search import parse_query
 
-    return parse_query([url.strip()])
+    url = normalize_spotify_url(url)
+    kind = _spotify_resource_kind(url)
+    # Playlists/albums fan out to many API calls — prefer spotdl's free client first.
+    prefer_order = (True, False) if kind in ('playlist', 'album', 'artist') else (False, True)
+    last_exc: Exception | None = None
+    for prefer_free in prefer_order:
+        try:
+            reset_spotify_client()
+            if not init_spotify_client(force=True, prefer_free=prefer_free):
+                continue
+            return parse_query([url.strip()])
+        except Exception as exc:
+            last_exc = exc
+            if prefer_free or not _is_spotify_rate_error(exc):
+                break
+            try:
+                print("[Spotify] official API limited — retrying with spotdl free client")
+            except UnicodeEncodeError:
+                pass
+
+    exc = last_exc or RuntimeError("Spotify 곡 목록 조회 실패")
+    msg = str(exc).strip() or type(exc).__name__
+    lower = msg.lower()
+    if _is_spotify_rate_error(exc):
+        mark_rate_limited()
+        raise RuntimeError(
+            "Spotify API 요청 한도에 걸렸습니다. "
+            "5분 후 다시 시도하거나 .env의 Spotify 앱 설정을 확인해 주세요."
+        ) from exc
+    if "404" in msg or "not found" in lower:
+        raise RuntimeError(
+            "Spotify 플레이리스트/앨범을 찾을 수 없습니다. "
+            "링크가 맞는지, 비공개 플리인지 확인해 주세요."
+        ) from exc
+    raise RuntimeError(f"Spotify 곡 목록 조회 실패: {msg[:240]}") from exc
 
 
 def existing_spotify_ids(records: list[dict]) -> set[str]:
@@ -182,30 +262,55 @@ def mp3_to_meta(file_path: str, spotify_url: str, song=None) -> dict:
     return meta
 
 
-def run_spotdl_download(urls: list[str], output_dir: str):
+def run_spotdl_download(urls: list[str], output_dir: str) -> list[str]:
+    """Download via spotdl. Batches URLs to stay under Windows command-line limits."""
     os.makedirs(output_dir, exist_ok=True)
-    cmd = [
-        sys.executable,
-        '-m',
-        'spotdl',
-        'download',
-        *urls,
-        '--output',
-        output_dir,
-        '--format',
-        'mp3',
-        '--bitrate',
-        '320k',
-        '--sponsor-block',
-        '--audio',
-        'youtube-music',
-        'youtube',
-        'soundcloud',
-    ]
-    result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace')
-    if result.returncode != 0:
-        detail = (result.stderr or result.stdout or '').strip()
-        raise RuntimeError(detail or 'spotdl 다운로드 실패')
+    urls = [u.strip() for u in urls if u and u.strip()]
+    if not urls:
+        raise RuntimeError('다운로드할 Spotify URL이 없습니다.')
+
+    # Windows CreateProcess limit is ~8191 chars; keep batches small.
+    batch_size = 25 if len(urls) > 1 else len(urls)
+    errors: list[str] = []
+
+    for start in range(0, len(urls), batch_size):
+        batch = urls[start : start + batch_size]
+        cmd = [
+            sys.executable,
+            '-m',
+            'spotdl',
+            'download',
+            *batch,
+            '--output',
+            output_dir,
+            '--format',
+            'mp3',
+            '--bitrate',
+            '320k',
+            '--sponsor-block',
+            '--overwrite',
+            'skip',
+            '--print-errors',
+            '--audio',
+            'youtube-music',
+            'youtube',
+            'soundcloud',
+        ]
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            encoding='utf-8',
+            errors='replace',
+        )
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout or '').strip()
+            if detail:
+                errors.append(detail[-800:])
+            else:
+                errors.append('spotdl 다운로드 실패')
+
+    return errors
 
 
 def find_new_mp3_files(output_dir: str, before: set) -> list:
@@ -230,14 +335,13 @@ def _match_mp3_to_song(mp3_path: str, songs_by_id: dict[str, object]) -> object 
 
 
 def process_spotify_url_sync(url, progress_callback=None):
-    url = url.strip()
+    url = normalize_spotify_url(url.strip())
     if not is_spotify_url(url):
         raise ValueError('유효한 Spotify URL이 아닙니다. (트랙 / 앨범 / 플레이리스트)')
 
     library = load_archive()
 
-    if progress_callback:
-        progress_callback(0.05, 'Spotify 플레이리스트 확인 중...')
+    _emit(progress_callback, 0.03, 'Spotify 곡 목록 확인 중...', stage='listing')
 
     all_songs = list_spotify_songs(url)
     if not all_songs:
@@ -247,14 +351,31 @@ def process_spotify_url_sync(url, progress_callback=None):
     to_download = [s for s in all_songs if not is_track_in_library(library, s)]
     skipped = len(all_songs) - len(to_download)
 
+    _emit(
+        progress_callback,
+        0.06,
+        f'목록 확인 완료 · 전체 {len(all_songs)}곡 · 받을 곡 {len(to_download)} · 스킵 {skipped}',
+        stage='listing',
+        total=len(to_download) or len(all_songs),
+        current=0,
+        skipped=skipped,
+    )
+
     if not to_download:
         existing = [
             rec
             for rec in existing_records_for_songs(library, all_songs)
             if record_has_file(rec)
         ]
-        if progress_callback:
-            progress_callback(1.0, f'이미 보유 중 ({skipped}곡 스킵)')
+        _emit(
+            progress_callback,
+            1.0,
+            f'이미 보유 중 ({skipped}곡 스킵)',
+            stage='done',
+            current=0,
+            total=0,
+            skipped=skipped,
+        )
         return {
             'records': existing,
             'skipped': skipped,
@@ -266,14 +387,51 @@ def process_spotify_url_sync(url, progress_callback=None):
     os.makedirs(spot_temp, exist_ok=True)
     before = set(glob.glob(os.path.join(spot_temp, '**', '*.mp3'), recursive=True))
 
-    if progress_callback:
-        progress_callback(
-            0.12,
-            f'Spotify 다운로드 중 ({len(to_download)}곡 · {skipped}곡 스킵)...',
-        )
-
     download_urls = [s.url for s in to_download if s.url]
-    run_spotdl_download(download_urls, spot_temp)
+    if not download_urls:
+        raise RuntimeError('다운로드할 Spotify 트랙 URL이 없습니다.')
+
+    kind = _spotify_resource_kind(url)
+    if kind in ('playlist', 'album', 'artist') and len(to_download) == len(all_songs):
+        spotdl_targets = [url]
+    else:
+        spotdl_targets = download_urls
+
+    # spotdl은 일괄 실행이라 하트비트로 "살아있음"을 표시
+    stop_pulse = threading.Event()
+    pulse_n = [0]
+
+    def spotdl_pulse():
+        while not stop_pulse.wait(3.0):
+            pulse_n[0] += 1
+            dots = '.' * (1 + pulse_n[0] % 3)
+            _emit(
+                progress_callback,
+                min(0.18, 0.08 + pulse_n[0] * 0.004),
+                f'Spotify 오디오 다운로드 중 ({len(to_download)}곡){dots}',
+                stage='downloading',
+                current=0,
+                total=len(to_download),
+                skipped=skipped,
+            )
+
+    _emit(
+        progress_callback,
+        0.08,
+        f'Spotify 오디오 다운로드 시작 ({len(to_download)}곡 · {skipped}곡 스킵)...',
+        stage='downloading',
+        current=0,
+        total=len(to_download),
+        skipped=skipped,
+    )
+
+    pulse_thread = threading.Thread(target=spotdl_pulse, daemon=True)
+    pulse_thread.start()
+    try:
+        spotdl_errors = run_spotdl_download(spotdl_targets, spot_temp)
+    finally:
+        stop_pulse.set()
+
     mp3_files = find_new_mp3_files(spot_temp, before)
     if not mp3_files:
         mp3_files = sorted(
@@ -282,7 +440,12 @@ def process_spotify_url_sync(url, progress_callback=None):
         )
 
     if not mp3_files:
-        raise RuntimeError('다운로드된 MP3 파일이 없습니다.')
+        hint = ''
+        combined = '\n'.join(spotdl_errors).lower()
+        if 'too long' in combined or '206' in combined or len(download_urls) > 80:
+            hint = ' (플레이리스트가 너무 길면 곡을 나눠서 받아 보세요.)'
+        detail = spotdl_errors[-1] if spotdl_errors else '다운로드된 MP3 파일이 없습니다.'
+        raise RuntimeError(f'{detail}{hint}')
 
     records = []
     total = len(mp3_files)
@@ -290,20 +453,77 @@ def process_spotify_url_sync(url, progress_callback=None):
     prepared: list[tuple[str, object, dict]] = []
     for mp3_path in mp3_files:
         song = _match_mp3_to_song(mp3_path, songs_by_id)
-        meta = mp3_to_meta(mp3_path, url, song=song)
+        track_url = str(getattr(song, 'url', '') or '') if song else ''
+        meta = mp3_to_meta(mp3_path, track_url or url, song=song)
         prepared.append((mp3_path, song, meta))
 
+    _emit(
+        progress_callback,
+        0.20,
+        f'오디오 확보 완료 · {total}곡 후처리 시작 (WAV · 커버 · BPM/Key)...',
+        stage='converting',
+        current=0,
+        total=total,
+        skipped=skipped,
+    )
+
     for index, (mp3_path, song, meta) in enumerate(prepared):
-        base = 0.2 + (0.7 * index / total)
-        if progress_callback:
-            progress_callback(
-                base,
-                f'WAV 변환 중 ({index + 1}/{total}): {meta["artist"]} - {meta["title"]}',
-            )
-        staging_wav = convert_to_staging_wav(mp3_path, meta['id'], progress_callback)
+        n = index + 1
+        label = f'{meta["artist"]} - {meta["title"]}'
+        span = 0.75 / total
+        base = 0.20 + span * index
+
+        def track_cb(pct, msg, info=None, _n=n, _meta=meta):
+            merged = {
+                'stage': (info or {}).get('stage') or 'converting',
+                'current': _n,
+                'total': total,
+                'remaining': max(0, total - _n),
+                'track_title': _meta.get('title'),
+                'track_artist': _meta.get('artist'),
+                'skipped': skipped,
+            }
+            if info:
+                for k, v in info.items():
+                    if v is not None and k not in ('current', 'total', 'remaining', 'skipped'):
+                        merged[k] = v
+            try:
+                progress_callback(pct, f'[{_n}/{total}] {msg}', merged)
+            except TypeError:
+                if progress_callback:
+                    progress_callback(pct, f'[{_n}/{total}] {msg}')
+
+        _emit(
+            track_cb if progress_callback else None,
+            base,
+            f'WAV 변환 중: {label}',
+            stage='converting',
+            current=n,
+            total=total,
+            track_title=meta.get('title'),
+            track_artist=meta.get('artist'),
+            skipped=skipped,
+        )
+
+        staging_wav = convert_to_staging_wav(
+            mp3_path,
+            meta['id'],
+            track_cb if progress_callback else None,
+            progress_base=base + span * 0.05,
+            progress_end=base + span * 0.45,
+            label=label,
+        )
         cover_data, cover_mime = mp3_cover_from_tags(mp3_path)
         record = finalize_record(
-            staging_wav, meta, '', UNKNOWN, cover_data, cover_mime, progress_callback
+            staging_wav,
+            meta,
+            '',
+            UNKNOWN,
+            cover_data,
+            cover_mime,
+            track_cb if progress_callback else None,
+            progress_cover=base + span * 0.55,
+            progress_meta=base + span * 0.75,
         )
         records.append(record)
 
@@ -319,12 +539,21 @@ def process_spotify_url_sync(url, progress_callback=None):
         pass
     cleanup_temp_dir()
 
-    if progress_callback:
-        msg = f'완료! ({len(records)}곡'
-        if skipped:
-            msg += f' · {skipped}곡 스킵'
-        msg += ')'
-        progress_callback(1.0, msg)
+    msg = f'완료! ({len(records)}곡'
+    if skipped:
+        msg += f' · {skipped}곡 스킵'
+    if spotdl_errors and len(records) < len(to_download):
+        msg += f' · {len(to_download) - len(records)}곡 spotdl 실패'
+    msg += ')'
+    _emit(
+        progress_callback,
+        1.0,
+        msg,
+        stage='done',
+        current=len(records),
+        total=total,
+        skipped=skipped,
+    )
 
     if len(records) == 1 and skipped == 0:
         return records[0]

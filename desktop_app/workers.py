@@ -35,9 +35,11 @@ class DownloadJob(QRunnable):
 
         try:
             if self.request.source == "spotify":
-                from spotify_pipeline import process_spotify_url_sync
+                from spotify_pipeline import normalize_spotify_url, process_spotify_url_sync
 
-                result = process_spotify_url_sync(self.request.url, progress_cb)
+                result = process_spotify_url_sync(
+                    normalize_spotify_url(self.request.url), progress_cb
+                )
             else:
                 from pipeline import process_url_sync
 
@@ -56,7 +58,7 @@ class MetadataRefreshSignals(QObject):
 
 
 class MetadataRefreshJob(QRunnable):
-    """Analyze BPM/Key from local WAV; GetSongBPM API fills any gaps."""
+    """BPM/Key from MIK DB & tags, then GetSongBPM / local analysis for gaps."""
 
     def __init__(
         self,
@@ -74,7 +76,7 @@ class MetadataRefreshJob(QRunnable):
     def run(self) -> None:
         try:
             from library import UNKNOWN, effective_artist_title
-            from track_metadata import resolve_bpm_key_for_track
+            from track_metadata import resolve_track_metadata
         except Exception as e:
             self.signals.failed.emit(f"메타데이터 모듈 로드 실패: {e}")
             return
@@ -89,13 +91,22 @@ class MetadataRefreshJob(QRunnable):
         for i, (track_id, artist, title, path) in enumerate(valid):
             artist, title = effective_artist_title(artist, title)
             try:
-                result = resolve_bpm_key_for_track(path, artist, title)
+                result = resolve_track_metadata(path, artist, title)
                 bpm = result.get("bpm") or 0
                 key = str(result.get("key") or UNKNOWN)
-                if bpm or (key and key != UNKNOWN):
+                has_bpm = bool(bpm) and float(bpm) > 0
+                has_key = key and key != UNKNOWN
+                if has_bpm or has_key or result.get("energy_level"):
                     self.signals.one_done.emit(
                         track_id,
-                        {"bpm": bpm, "key": key, "source": result.get("source", "")},
+                        {
+                            "bpm": bpm,
+                            "key": key,
+                            "camelot_key": result.get("camelot") or "",
+                            "energy_level": result.get("energy_level") or 0,
+                            "beat_offset_sec": result.get("beat_offset_sec"),
+                            "source": result.get("source", ""),
+                        },
                     )
                     done += 1
             except Exception as e:
@@ -201,6 +212,74 @@ class VersionSearchJob(QRunnable):
             self.signals.failed.emit(str(e).strip() or type(e).__name__)
 
 
+class UrlPreviewSignals(QObject):
+    finished = Signal(object)  # dict: artist, title, url, platform, id, track_count?
+    failed = Signal(str)
+
+
+class UrlPreviewJob(QRunnable):
+    """Fetch title/artist from a URL without downloading (yt-dlp or Spotify metadata)."""
+
+    def __init__(self, url: str, source: str):
+        super().__init__()
+        self.url = url.strip()
+        self.source = source
+        self.signals = UrlPreviewSignals()
+
+    @Slot()
+    def run(self) -> None:
+        try:
+            if self.source == "spotify":
+                from library import display_artists
+                from spotify_pipeline import list_spotify_songs, normalize_spotify_url
+
+                norm = normalize_spotify_url(self.url)
+                songs = list_spotify_songs(norm)
+                if not songs:
+                    raise RuntimeError("Spotify 곡 정보를 찾을 수 없습니다.")
+                song = songs[0]
+                primary = str(getattr(song, "artist", "") or "Unknown")
+                artists = getattr(song, "artists", None) or []
+                artist = display_artists(
+                    "/".join(artists) if artists else primary
+                )
+                payload = {
+                    "title": str(getattr(song, "name", "") or "Unknown"),
+                    "artist": artist,
+                    "url": str(getattr(song, "url", "") or self.url),
+                    "platform": "spotify",
+                    "id": str(getattr(song, "song_id", "") or ""),
+                    "track_count": len(songs),
+                }
+                self.signals.finished.emit(payload)
+                return
+
+            import yt_dlp
+
+            from library import extract_metadata
+
+            opts = {
+                "quiet": True,
+                "no_warnings": True,
+                "skip_download": True,
+            }
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                info = ydl.extract_info(self.url, download=False)
+            meta = extract_metadata(info)
+            self.signals.finished.emit(
+                {
+                    "title": meta.get("title") or "Unknown",
+                    "artist": meta.get("artist") or "Unknown",
+                    "url": meta.get("url") or self.url,
+                    "platform": meta.get("platform") or "stream",
+                    "id": meta.get("id") or "",
+                    "track_count": 1,
+                }
+            )
+        except Exception as e:
+            self.signals.failed.emit(str(e).strip() or type(e).__name__)
+
+
 class WorkerPool:
     def __init__(self) -> None:
         self.pool = QThreadPool.globalInstance()
@@ -212,6 +291,11 @@ class WorkerPool:
 
     def start_version_search(self, query: str, limit: int = 10) -> VersionSearchJob:
         job = VersionSearchJob(query, limit)
+        self.pool.start(job)
+        return job
+
+    def start_url_preview(self, url: str, source: str) -> UrlPreviewJob:
+        job = UrlPreviewJob(url, source)
         self.pool.start(job)
         return job
 
