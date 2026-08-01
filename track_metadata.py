@@ -202,7 +202,11 @@ def lookup_getsongbpm_only(artist: str, title: str) -> dict[str, Any] | None:
 
 def _metadata_from_wav_tags(path: str) -> dict[str, Any] | None:
     from library import UNKNOWN, key_has_mode, read_wav_tags
-    from mik_metadata import key_from_camelot
+
+    try:
+        from mik_metadata import key_from_camelot
+    except ImportError:
+        key_from_camelot = lambda _raw: None  # noqa: E731
 
     tags = read_wav_tags(path)
     if not tags:
@@ -263,8 +267,6 @@ def resolve_track_metadata(
     title: str,
 ) -> dict[str, Any]:
     """MIK DB → WAV tags → GetSongBPM → local analysis (first hit wins per field)."""
-    from mik_metadata import lookup_mik_by_path
-
     result: dict[str, Any] = {
         "bpm": 0,
         "key": UNKNOWN,
@@ -275,7 +277,12 @@ def resolve_track_metadata(
     }
 
     if path:
-        _merge_metadata_field(result, lookup_mik_by_path(path), source="mik")
+        try:
+            from mik_metadata import lookup_mik_by_path
+
+            _merge_metadata_field(result, lookup_mik_by_path(path), source="mik")
+        except ImportError:
+            pass
         if os.path.isfile(path):
             _merge_metadata_field(result, _metadata_from_wav_tags(path), source="tags")
 

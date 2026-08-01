@@ -24,6 +24,8 @@ YouTube / Spotify 링크로 WAV를 받고, BPM·Key·커버까지 정리하는 �
 
 ## macOS 셋업 (MacBook)
 
+카페/외출용 짧은 가이드: [`docs/MAC_CAFE_SETUP.md`](docs/MAC_CAFE_SETUP.md)
+
 ```bash
 # 1) 도구 설치
 brew install python@3.12 node ffmpeg git
