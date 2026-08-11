@@ -14,13 +14,15 @@ from server.database import (
     record_has_file,
 )
 from server.models import (
+    BatchEnrichRequest,
+    BatchEnrichResponse,
     MessageResponse,
     PaginatedResponse,
     Track,
     TrackUpdate,
 )
 from server.services.cover_service import get_cached_color
-from server.services.metadata_service import enrich_single_track
+from server.services.metadata_service import batch_enrich_metadata, enrich_single_track
 
 # 기존 모듈
 from library import (
@@ -38,6 +40,14 @@ router = APIRouter(prefix="/tracks", tags=["트랙"])
 # 변환 유틸
 # ---------------------------------------------------------------------------
 
+def _parse_bpm(value: Any) -> float:
+    try:
+        bpm = float(value or 0)
+        return bpm if bpm > 0 else 0.0
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def _record_to_track(rec: dict[str, Any]) -> Track:
     """내부 레코드 → Pydantic Track 모델 변환."""
     return Track(
@@ -48,7 +58,7 @@ def _record_to_track(rec: dict[str, Any]) -> Track:
         album=str(rec.get("album") or ""),
         genre=str(rec.get("genre") or ""),
         year=str(rec.get("year") or ""),
-        bpm=str(rec.get("bpm") or ""),
+        bpm=_parse_bpm(rec.get("bpm")),
         key=str(rec.get("key") or ""),
         camelot_key=str(rec.get("camelot_key") or ""),
         energy_level=int(rec.get("energy_level") or 0),
@@ -229,7 +239,9 @@ async def delete_track(
     track_id: str,
     delete_file: bool = Query(False, description="WAV 파일도 함께 삭제"),
 ) -> MessageResponse:
-    """트랙을 라이브러리에서 삭제합니다."""
+    """트랙을 라이브러리에서 삭제합니다. 플레이리스트 멤버십도 정리합니다."""
+    from server.database import load_playlists, save_playlists
+
     cache = get_archive_cache()
     record = cache.get_record(track_id)
     if not record:
@@ -243,6 +255,22 @@ async def delete_track(
             delete_track_file(file_path)
 
     cache.delete(track_id)
+
+    # 플레이리스트 orphan 정리
+    pdata = load_playlists()
+    playlists = pdata.get("playlists") or {}
+    changed = False
+    for name, ids in list(playlists.items()):
+        if not isinstance(ids, list):
+            continue
+        filtered = [tid for tid in ids if str(tid) != track_id]
+        if len(filtered) != len(ids):
+            playlists[name] = filtered
+            changed = True
+    if changed:
+        pdata["playlists"] = playlists
+        save_playlists(pdata)
+
     return MessageResponse(message=f"'{title}' 트랙이 삭제되었습니다.")
 
 
@@ -253,6 +281,21 @@ async def get_track_versions(track_id: str) -> list[Track]:
     records = cache.get_records()
     versions = find_version_tracks(records, track_id)
     return [_record_to_track(r) for r in versions]
+
+
+@router.post("/enrich-batch", response_model=BatchEnrichResponse)
+async def enrich_tracks_batch(body: BatchEnrichRequest | None = None) -> BatchEnrichResponse:
+    """여러 트랙의 BPM/Key를 일괄 보강합니다. track_ids 생략 시 전체(또는 missing만)."""
+    req = body or BatchEnrichRequest()
+    result = await batch_enrich_metadata(
+        req.track_ids,
+        only_missing=req.only_missing,
+    )
+    return BatchEnrichResponse(
+        updated=int(result.get("updated") or 0),
+        skipped=int(result.get("skipped") or 0),
+        failed=int(result.get("failed") or 0),
+    )
 
 
 @router.post("/{track_id}/enrich", response_model=Track)

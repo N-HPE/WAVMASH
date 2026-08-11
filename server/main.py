@@ -92,7 +92,7 @@ settings = get_settings()
 
 app = FastAPI(
     title="WaveMash API",
-    description="프리미엄 뮤직 컬렉션 웹 앱 백엔드",
+    description="로컬 WAV 컬렉션 · YouTube 수집 · BPM/Key 정리 (Spotify sync는 마이그레이션 임시 툴)",
     version="1.0.0",
     lifespan=lifespan,
     docs_url="/docs",
