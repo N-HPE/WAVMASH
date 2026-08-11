@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException
 from server.database import load_playlists, save_playlists, get_archive_cache
 from server.models import (
     AutoPlaylistRule,
+    AutoParseResponse,
     MessageResponse,
     Playlist,
     PlaylistAddTrack,
@@ -166,6 +167,19 @@ async def get_playlist_tracks(name: str) -> list[dict[str, Any]]:
     return result
 
 
+@router.post("/auto-parse", response_model=AutoParseResponse)
+async def auto_parse_playlists(
+    rules: list[AutoPlaylistRule] | None = None,
+) -> AutoParseResponse:
+    """장르/BPM/키를 기준으로 트랙을 자동 분류하여 플레이리스트를 생성합니다.
+
+    규칙을 제공하지 않으면 기본 장르 규칙이 사용됩니다.
+    """
+    created = apply_auto_playlists(rules)
+    playlists = await list_playlists()
+    return AutoParseResponse(created=created, playlists=playlists)
+
+
 @router.post("", response_model=Playlist)
 async def create_playlist(body: PlaylistCreate) -> Playlist:
     """새 플레이리스트를 생성합니다."""
@@ -320,15 +334,3 @@ async def remove_track_from_playlist(name: str, track_id: str) -> Playlist:
     save_playlists(data)
 
     return _playlist_from_data(name, track_ids, activity.get(name), meta.get(name))
-
-
-@router.post("/auto-parse", response_model=dict[str, int])
-async def auto_parse_playlists(
-    rules: list[AutoPlaylistRule] | None = None,
-) -> dict[str, int]:
-    """장르/BPM/키를 기준으로 트랙을 자동 분류하여 플레이리스트를 생성합니다.
-
-    규칙을 제공하지 않으면 기본 장르 규칙이 사용됩니다.
-    """
-    result = apply_auto_playlists(rules)
-    return result

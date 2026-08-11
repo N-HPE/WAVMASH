@@ -13,6 +13,11 @@ import type {
   AlbumInfo,
   GenreInfo,
   DownloadProgress,
+  AutoParseResponse,
+  BatchEnrichRequest,
+  BatchEnrichResponse,
+  LibrarySyncStatus,
+  LibraryImportResponse,
 } from './types';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
@@ -230,10 +235,26 @@ class WaveMashAPI {
     );
   }
 
-  async autoParsePlaylist(): Promise<Playlist[]> {
-    return this.fetch<Playlist[]>('/api/playlists/auto-parse', {
+  async autoParsePlaylist(): Promise<AutoParseResponse> {
+    return this.fetch<AutoParseResponse>('/api/playlists/auto-parse', {
       method: 'POST',
     });
+  }
+
+  async enrichTracksBatch(
+    data: BatchEnrichRequest = { only_missing: true }
+  ): Promise<BatchEnrichResponse> {
+    return this.fetch<BatchEnrichResponse>('/api/tracks/enrich-batch', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async enrichTrack(trackId: string): Promise<Track> {
+    return this.fetch<Track>(
+      `/api/tracks/${encodeURIComponent(trackId)}/enrich`,
+      { method: 'POST' }
+    );
   }
 
   /* ── Cover Endpoints ── */
@@ -289,7 +310,34 @@ class WaveMashAPI {
     );
   }
 
-  /* ── Spotify Sync Endpoints ── */
+  /* ── Library device sync (archive + playlists) ── */
+
+  async getLibrarySyncStatus(): Promise<LibrarySyncStatus> {
+    return this.fetch<LibrarySyncStatus>('/api/library/sync/status');
+  }
+
+  async exportLibrary(includeSpotifySync = false): Promise<Record<string, unknown>> {
+    return this.fetch<Record<string, unknown>>(
+      `/api/library/export${this.buildQueryString({
+        include_spotify_sync: includeSpotifySync,
+      })}`
+    );
+  }
+
+  async importLibrary(body: {
+    archive?: unknown[];
+    playlists?: Record<string, unknown>;
+    mode?: 'merge' | 'replace';
+    import_archive?: boolean;
+    import_playlists?: boolean;
+  }): Promise<LibraryImportResponse> {
+    return this.fetch<LibraryImportResponse>('/api/library/import', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  }
+
+  /* ── Spotify Sync Endpoints (마이그레이션 임시 툴) ── */
 
   async getSpotifySyncConfigs(): Promise<import('./types').SpotifySyncConfig[]> {
     return this.fetch<import('./types').SpotifySyncConfig[]>('/api/spotify-sync/configs');

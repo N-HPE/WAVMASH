@@ -10,18 +10,21 @@ export interface Track {
   album: string;
   genre: string;
   year: string;
+  /** API는 number로 통일 (0 = 미상) */
   bpm: number;
   key: string;
   camelot_key: string;
   energy_level: number;
   platform: string;
   url: string;
+  external_id?: string;
   thumbnail_url: string;
   local_path: string;
   has_cover: boolean;
   has_file: boolean;
   dominant_color?: string;
   format?: string;
+  missing?: boolean;
 }
 
 export interface TrackUpdate {
@@ -30,6 +33,9 @@ export interface TrackUpdate {
   album?: string;
   genre?: string;
   year?: string;
+  bpm?: number | string;
+  key?: string;
+  energy_level?: number;
 }
 
 export interface Playlist {
@@ -44,7 +50,10 @@ export interface Playlist {
   shade: number;
   /** 표시용 hex 색상 */
   color: string;
-  /** local = 로컬 전용, spotify = 스포티파이 동기화 */
+  /**
+   * local = 로컬/YouTube 수집
+   * spotify = Spotify 마이그레이션(이전용)으로 들어온 플리
+   */
   source?: 'local' | 'spotify' | string;
   spotify_url?: string | null;
   sync_id?: string | null;
@@ -79,8 +88,10 @@ export interface LibraryStats {
   total_artists: number;
   total_albums: number;
   total_playlists: number;
+  total_with_files?: number;
   genres: Record<string, number>;
   platforms: Record<string, number>;
+  bpm_distribution?: Record<string, number>;
   recent_tracks: Track[];
 }
 
@@ -127,17 +138,55 @@ export interface DownloadProgress {
 }
 
 export interface PaginatedResponse<T> {
-  tracks: T[];
+  items?: T[];
+  tracks?: T[];
   total: number;
   page: number;
   page_size: number;
   total_pages: number;
 }
 
+export interface AutoParseResponse {
+  created: Record<string, number>;
+  playlists: Playlist[];
+}
+
+export interface BatchEnrichRequest {
+  track_ids?: string[] | null;
+  only_missing?: boolean;
+}
+
+export interface BatchEnrichResponse {
+  updated: number;
+  skipped: number;
+  failed: number;
+}
+
+export interface LibrarySyncStatus {
+  archive_path: string;
+  playlists_path: string;
+  archive_track_count: number;
+  playlist_count: number;
+  archive_mtime?: number | null;
+  playlists_mtime?: number | null;
+  archive_sha256?: string | null;
+  playlists_sha256?: string | null;
+}
+
+export interface LibraryImportResponse {
+  success: boolean;
+  mode: string;
+  archive_added: number;
+  archive_updated: number;
+  playlist_count: number;
+  status?: LibrarySyncStatus | null;
+}
+
 export type ViewMode = "grid" | "list";
 export type SortField = "title" | "artist" | "bpm" | "year" | "genre" | "recent";
 export type SortOrder = "asc" | "desc";
 
+/** Spotify 동기화 = 구독 해지 전 WaveMash로 옮기는 임시 마이그레이션 툴 */
 export interface SpotifySyncConfig {
   id: string;
   url: string;
@@ -167,4 +216,3 @@ export interface SpotifySyncResult {
   synced_at?: string;
   error?: string;
 }
-
