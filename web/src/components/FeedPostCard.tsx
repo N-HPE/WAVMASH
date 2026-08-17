@@ -24,6 +24,7 @@ import {
 import type { Post, PostComment } from '@/lib/types';
 import api from '@/lib/api';
 import { useCoverGlow } from '@/lib/coverColors';
+import { usePlayer } from '@/contexts/PlayerContext';
 import ShareVinylCardModal from './ShareVinylCardModal';
 
 interface FeedPostCardProps {
@@ -41,19 +42,19 @@ export default function FeedPostCard({
 }: FeedPostCardProps) {
   const track = post.track;
   const user = post.user;
+  const { currentTrack, isPlaying: globalPlaying, play, togglePlay: globalTogglePlay } = usePlayer();
+
+  const isCurrentTrackPlaying = globalPlaying && currentTrack?.track_id === track?.track_id;
 
   const [isLiked, setIsLiked] = useState(post.is_liked || false);
   const [likesCount, setLikesCount] = useState(post.likes_count || 0);
   const [isCollected, setIsCollected] = useState(false);
-  const [isPlaying, setIsPlaying] = useState(false);
   const [showComments, setShowComments] = useState(false);
   const [comments, setComments] = useState<PostComment[]>([]);
   const [newComment, setNewComment] = useState('');
   const [loadingComments, setLoadingComments] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
-
-  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   const coverUrl = track ? api.getCoverUrl(track.track_id, 600) : '';
   const glowColor = useCoverGlow(
@@ -95,24 +96,16 @@ export default function FeedPostCard({
     }
   };
 
-  // 오디오 재생 토글
-  const togglePlay = () => {
+  // 앨범 커버 클릭 시 통합 플레이어로 자동 재생
+  const handleCoverClick = () => {
     if (!track) return;
-    if (!audioRef.current) {
-      audioRef.current = new Audio(api.getStreamUrl(track.track_id));
-      audioRef.current.onended = () => setIsPlaying(false);
-    }
-
-    if (isPlaying) {
-      audioRef.current.pause();
-      setIsPlaying(false);
+    if (currentTrack?.track_id === track.track_id) {
+      globalTogglePlay();
     } else {
-      audioRef.current.play().catch((err) => {
-        console.warn('Audio play failed:', err);
-      });
-      setIsPlaying(true);
+      play(track);
     }
   };
+
 
   // 댓글 목록 조회
   const toggleCommentSection = async () => {
@@ -240,7 +233,7 @@ export default function FeedPostCard({
         <div
           className="relative aspect-square w-full overflow-hidden bg-[#080811] flex items-center justify-center group cursor-pointer"
           style={{ '--glow-color': glowColor } as React.CSSProperties}
-          onClick={togglePlay}
+          onClick={handleCoverClick}
         >
           {/* Ambient Glow */}
           <div
@@ -251,7 +244,7 @@ export default function FeedPostCard({
           {/* Vinyl Disc Slipout */}
           <div
             className={`absolute z-10 w-4/5 h-4/5 rounded-full bg-black border-4 border-[#222] shadow-2xl flex items-center justify-center transition-all duration-700 ${
-              isPlaying
+              isCurrentTrackPlaying
                 ? 'right-4 rotate-180 animate-spin'
                 : 'right-10 group-hover:right-6'
             }`}
@@ -280,7 +273,11 @@ export default function FeedPostCard({
             {/* Center Play Overlay */}
             <div className="absolute inset-0 flex items-center justify-center bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity">
               <div className="w-14 h-14 rounded-full bg-[#d4a853] text-black flex items-center justify-center shadow-xl transform group-hover:scale-110 transition-transform">
-                {isPlaying ? <Pause className="w-6 h-6 fill-current" /> : <Play className="w-6 h-6 fill-current ml-1" />}
+                {isCurrentTrackPlaying ? (
+                  <Pause className="w-6 h-6 fill-current" />
+                ) : (
+                  <Play className="w-6 h-6 fill-current ml-1" />
+                )}
               </div>
             </div>
 
@@ -290,6 +287,7 @@ export default function FeedPostCard({
                 {track.format || 'WAV'}
               </span>
             </div>
+
             <div className="absolute bottom-3 right-3 flex gap-1.5 z-30">
               {track.bpm > 0 && (
                 <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-black/70 text-white backdrop-blur-md">

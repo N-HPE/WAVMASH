@@ -1,15 +1,17 @@
 'use client';
 
 /* ──────────────────────────────────────────────
-   WaveMash — Track Card (Album + LP Vinyl)
+   WaveMash — Track Card (Album + LP Vinyl + Instant Play)
+   앨범 커버 클릭 시 YouTube/Audio 즉시 자동 재생
    ────────────────────────────────────────────── */
 
-import { useState } from 'react';
+import React, { useState } from 'react';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
-import { Music } from 'lucide-react';
+import { Music, Play, Pause } from 'lucide-react';
 import api from '@/lib/api';
 import { useCoverGlow } from '@/lib/coverColors';
+import { usePlayer } from '@/contexts/PlayerContext';
 import type { Track } from '@/lib/types';
 
 interface TrackCardProps {
@@ -18,6 +20,9 @@ interface TrackCardProps {
 }
 
 export default function TrackCard({ track, index = 0 }: TrackCardProps) {
+  const { currentTrack, isPlaying: globalPlaying, play, togglePlay: globalTogglePlay } = usePlayer();
+  const isCurrentTrackPlaying = globalPlaying && currentTrack?.track_id === track.track_id;
+
   const glowColor = useCoverGlow(
     track.track_id,
     track.has_cover,
@@ -25,8 +30,17 @@ export default function TrackCard({ track, index = 0 }: TrackCardProps) {
   );
   const [imgError, setImgError] = useState(false);
 
-  // 그리드용 작은 썸네일 (원본 대신 서버 리사이즈)
   const coverUrl = api.getCoverUrl(track.track_id, 320);
+
+  const handlePlayClick = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (currentTrack?.track_id === track.track_id) {
+      globalTogglePlay();
+    } else {
+      play(track);
+    }
+  };
 
   return (
     <motion.div
@@ -38,15 +52,21 @@ export default function TrackCard({ track, index = 0 }: TrackCardProps) {
         ease: [0.25, 0.46, 0.45, 0.94],
       }}
     >
-      <Link href={`/track/${track.track_id}`} className="block group">
+      <div className="block group">
         <div className="glass rounded-xl overflow-hidden hover-lift">
           {/* ── Cover + Vinyl ── */}
           <div
-            className="cover-glow vinyl-container relative aspect-square overflow-hidden"
+            className="cover-glow vinyl-container relative aspect-square overflow-hidden cursor-pointer"
             style={{ '--glow-color': glowColor } as React.CSSProperties}
+            onClick={handlePlayClick}
           >
             {/* LP Vinyl Disc */}
-            <div className="vinyl-disc" />
+            <div
+              className={`vinyl-disc transition-all ${
+                isCurrentTrackPlaying ? 'translate-x-4 animate-spin' : ''
+              }`}
+              style={{ animationDuration: '3s' }}
+            />
 
             {/* Album Cover */}
             {track.has_cover && !imgError ? (
@@ -64,6 +84,17 @@ export default function TrackCard({ track, index = 0 }: TrackCardProps) {
               </div>
             )}
 
+            {/* Center Play/Pause Button Overlay */}
+            <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity">
+              <div className="w-10 h-10 rounded-full bg-[#d4a853] text-black flex items-center justify-center shadow-xl transform group-hover:scale-110 active:scale-95 transition-transform">
+                {isCurrentTrackPlaying ? (
+                  <Pause className="w-5 h-5 fill-current" />
+                ) : (
+                  <Play className="w-5 h-5 fill-current ml-0.5" />
+                )}
+              </div>
+            </div>
+
             {/* BPM & Key Badges */}
             <div className="absolute bottom-2 right-2 z-20 flex gap-1">
               {track.bpm > 0 && (
@@ -80,16 +111,16 @@ export default function TrackCard({ track, index = 0 }: TrackCardProps) {
           </div>
 
           {/* ── Track Info ── */}
-          <div className="p-3">
-            <p className="truncate text-sm font-medium text-foreground">
+          <Link href={`/track/${track.track_id}`} className="block p-3">
+            <p className="truncate text-sm font-medium text-foreground group-hover:text-[#d4a853] transition-colors">
               {track.title}
             </p>
             <p className="truncate text-xs text-muted-foreground">
               {track.artist}
             </p>
-          </div>
+          </Link>
         </div>
-      </Link>
+      </div>
     </motion.div>
   );
 }

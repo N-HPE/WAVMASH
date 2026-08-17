@@ -16,13 +16,16 @@ export interface Track {
   energy_level: number;
   platform: string;
   url: string;
-  thumbnail_url: string;
-  local_path: string;
+  thumbnail_url?: string;
+  local_path?: string;
   has_cover: boolean;
   has_file: boolean;
   dominant_color?: string;
   format?: string;
+  external_id?: string;
 }
+
+
 
 export interface TrackUpdate {
   title?: string;

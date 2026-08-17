@@ -11,6 +11,7 @@ import { motion } from 'framer-motion';
 import { Play, Pause, Disc3, Radio } from 'lucide-react';
 import type { Track } from '@/lib/types';
 import api from '@/lib/api';
+import { usePlayer } from '@/contexts/PlayerContext';
 
 interface NowSpinningWidgetProps {
   track: Track | null;
@@ -21,27 +22,21 @@ export default function NowSpinningWidget({
   track,
   collectorName = 'KYO',
 }: NowSpinningWidgetProps) {
-  const [isPlaying, setIsPlaying] = useState(false);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const { currentTrack, isPlaying: globalPlaying, play, togglePlay: globalTogglePlay } = usePlayer();
 
   if (!track) return null;
 
+  const isCurrentTrackPlaying = globalPlaying && currentTrack?.track_id === track.track_id;
   const coverUrl = api.getCoverUrl(track.track_id, 300);
 
-  const togglePlay = () => {
-    if (!audioRef.current) {
-      audioRef.current = new Audio(api.getStreamUrl(track.track_id));
-      audioRef.current.onended = () => setIsPlaying(false);
-    }
-
-    if (isPlaying) {
-      audioRef.current.pause();
-      setIsPlaying(false);
+  const handleTogglePlay = () => {
+    if (currentTrack?.track_id === track.track_id) {
+      globalTogglePlay();
     } else {
-      audioRef.current.play().catch(console.warn);
-      setIsPlaying(true);
+      play(track);
     }
   };
+
 
   return (
     <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#151528] via-[#0d0d1a] to-[#070710] border border-white/10 p-5 shadow-2xl backdrop-blur-xl">
@@ -64,13 +59,13 @@ export default function NowSpinningWidget({
       <div className="flex items-center gap-5">
         {/* ── Turntable Platter & Vinyl ── */}
         <div
-          onClick={togglePlay}
+          onClick={handleTogglePlay}
           className="relative w-24 h-24 sm:w-28 sm:h-28 rounded-full bg-[#111] border-4 border-[#252538] shadow-2xl flex items-center justify-center cursor-pointer shrink-0 group"
         >
           {/* Rotating Vinyl */}
           <div
             className={`w-full h-full rounded-full flex items-center justify-center transition-all ${
-              isPlaying ? 'animate-spin' : ''
+              isCurrentTrackPlaying ? 'animate-spin' : ''
             }`}
             style={{ animationDuration: '3s' }}
           >
@@ -91,7 +86,7 @@ export default function NowSpinningWidget({
 
           {/* Play/Pause Overlay */}
           <div className="absolute inset-0 rounded-full bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-            {isPlaying ? (
+            {isCurrentTrackPlaying ? (
               <Pause className="w-6 h-6 text-[#d4a853] fill-current" />
             ) : (
               <Play className="w-6 h-6 text-[#d4a853] fill-current ml-0.5" />
@@ -128,7 +123,7 @@ export default function NowSpinningWidget({
           </div>
 
           {/* Mini Equalizer Bar Animation when playing */}
-          {isPlaying && (
+          {isCurrentTrackPlaying && (
             <div className="flex items-end gap-1 h-3 mt-3">
               {[40, 80, 60, 100, 50, 90, 70].map((h, i) => (
                 <motion.span
@@ -146,6 +141,7 @@ export default function NowSpinningWidget({
           )}
         </div>
       </div>
+
     </div>
   );
 }
