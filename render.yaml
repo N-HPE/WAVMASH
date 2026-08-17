@@ -40,7 +40,7 @@ services:
   - type: web
     name: wavmash-frontend
     runtime: docker
-    dockerfilePath: Dockerfile
+    dockerfilePath: web/Dockerfile
     dockerContext: web
     plan: free
     region: oregon
