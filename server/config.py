@@ -51,6 +51,8 @@ class Settings:
     SUPABASE_URL: str = os.environ.get("SUPABASE_URL", "").rstrip("/")
     SUPABASE_KEY: str = os.environ.get("SUPABASE_KEY", "")
     SUPABASE_SERVICE_ROLE_KEY: str = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
+    SUPABASE_JWT_SECRET: str = os.environ.get("SUPABASE_JWT_SECRET", "")
+
 
     # 서버 설정 (Render의 PORT 및 0.0.0.0 자동 감지 지원)
     HOST: str = os.environ.get("WAVMASH_HOST") or ("0.0.0.0" if os.environ.get("RENDER") else "127.0.0.1")

@@ -34,6 +34,8 @@ from server.routers import (
     spotify_sync,
     stream,
     tracks,
+    users,
+    social,
 )
 
 # 기존 모듈
@@ -140,6 +142,8 @@ app.include_router(spotify_sync.router, prefix=api_prefix)
 app.include_router(covers.router, prefix=api_prefix)
 app.include_router(library.router, prefix=api_prefix)
 app.include_router(stream.router, prefix=api_prefix)
+app.include_router(users.router, prefix=api_prefix)
+app.include_router(social.router, prefix=api_prefix)
 
 
 # ---------------------------------------------------------------------------

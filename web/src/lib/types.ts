@@ -168,3 +168,35 @@ export interface SpotifySyncResult {
   error?: string;
 }
 
+export interface UserProfile {
+  user_id: string;
+  username: string;
+  display_name: string;
+  bio: string;
+  avatar_url: string;
+  track_count: number;
+  friend_count: number;
+  is_public: boolean;
+  favorite_genre: string;
+}
+
+export interface ActivityItem {
+  id: string;
+  user_id: string;
+  action_type: string;
+  target_type: string;
+  target_id: string;
+  metadata: any;
+  created_at: string;
+  user?: UserProfile;
+}
+
+export interface ChartEntry {
+  track_id: string;
+  title: string;
+  artist: string;
+  album: string;
+  genre: string;
+  collector_count: number;
+  thumbnail_url: string;
+}

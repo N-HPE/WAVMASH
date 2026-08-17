@@ -199,6 +199,48 @@ class AutoPlaylistRule(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# 사용자 및 소셜 모델
+# ---------------------------------------------------------------------------
+
+class UserProfile(BaseModel):
+    """사용자 프로필 정보."""
+    user_id: str
+    username: str
+    display_name: str | None = None
+    bio: str | None = None
+    avatar_url: str | None = None
+    track_count: int = 0
+    friend_count: int = 0
+    created_at: str | None = None
+
+class UserProfileUpdate(BaseModel):
+    """사용자 프로필 업데이트."""
+    display_name: str | None = None
+    bio: str | None = None
+    favorite_genre: str | None = None
+
+class ActivityItem(BaseModel):
+    """소셜 활동 피드 항목."""
+    id: str
+    user_id: str
+    action_type: str
+    target_type: str
+    target_id: str
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    created_at: str
+
+class ChartEntry(BaseModel):
+    """차트 항목."""
+    track_id: str
+    title: str
+    artist: str
+    album: str | None = None
+    genre: str | None = None
+    collector_count: int = 0
+    thumbnail_url: str | None = None
+
+
+# ---------------------------------------------------------------------------
 # 공통 응답 모델
 # ---------------------------------------------------------------------------
 

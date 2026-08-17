@@ -19,9 +19,14 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 class WaveMashAPI {
   private baseUrl: string;
+  private authToken: string | null = null;
 
   constructor(baseUrl: string = API_BASE) {
     this.baseUrl = baseUrl;
+  }
+
+  setAuthToken(token: string | null) {
+    this.authToken = token;
   }
 
   /* ── Generic Fetch Wrapper ── */
@@ -29,12 +34,18 @@ class WaveMashAPI {
   private async fetch<T>(path: string, options?: RequestInit): Promise<T> {
     const url = `${this.baseUrl}${path}`;
     try {
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        ...options?.headers as Record<string, string>,
+      };
+
+      if (this.authToken) {
+        headers['Authorization'] = `Bearer ${this.authToken}`;
+      }
+
       const res = await fetch(url, {
         ...options,
-        headers: {
-          'Content-Type': 'application/json',
-          ...options?.headers,
-        },
+        headers,
       });
 
       if (!res.ok) {
@@ -344,6 +355,39 @@ class WaveMashAPI {
 
   getStreamUrl(trackId: string): string {
     return `${this.baseUrl}/api/stream/${encodeURIComponent(trackId)}`;
+  }
+
+  /* ── Social / Profile Endpoints ── */
+
+  async getProfile(username: string): Promise<import('./types').UserProfile> {
+    return this.fetch<import('./types').UserProfile>(`/api/users/${encodeURIComponent(username)}`);
+  }
+
+  async updateMyProfile(data: Partial<import('./types').UserProfile>): Promise<import('./types').UserProfile> {
+    return this.fetch<import('./types').UserProfile>('/api/users/me', {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async collectTrack(trackId: string): Promise<void> {
+    return this.fetch<void>(`/api/social/collect/${encodeURIComponent(trackId)}`, {
+      method: 'POST',
+    });
+  }
+
+  async uncollectTrack(trackId: string): Promise<void> {
+    return this.fetch<void>(`/api/social/collect/${encodeURIComponent(trackId)}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async getFeed(): Promise<import('./types').ActivityItem[]> {
+    return this.fetch<import('./types').ActivityItem[]>('/api/social/feed');
+  }
+
+  async getMostCollectedChart(): Promise<import('./types').ChartEntry[]> {
+    return this.fetch<import('./types').ChartEntry[]>('/api/social/charts/most-collected');
   }
 }
 

@@ -5,6 +5,7 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import Navbar from '@/components/Navbar';
 import { PlayerProvider } from '@/contexts/PlayerContext';
 import { DownloadProvider } from '@/contexts/DownloadContext';
+import { AuthProvider } from '@/contexts/AuthContext';
 import MiniPlayer from '@/components/MiniPlayer';
 import DownloadProgressBar from '@/components/DownloadProgressBar';
 
@@ -38,16 +39,18 @@ export default function RootLayout({
         />
       </head>
       <body className="min-h-screen bg-background text-foreground font-sans antialiased">
-        <TooltipProvider delay={300}>
-          <PlayerProvider>
-            <DownloadProvider>
-              <Navbar />
-              <main className="pt-16 pb-28">{children}</main>
-              <DownloadProgressBar />
-              <MiniPlayer />
-            </DownloadProvider>
-          </PlayerProvider>
-        </TooltipProvider>
+        <AuthProvider>
+          <TooltipProvider delay={300}>
+            <PlayerProvider>
+              <DownloadProvider>
+                <Navbar />
+                <main className="pt-16 pb-28">{children}</main>
+                <DownloadProgressBar />
+                <MiniPlayer />
+              </DownloadProvider>
+            </PlayerProvider>
+          </TooltipProvider>
+        </AuthProvider>
       </body>
     </html>
   );

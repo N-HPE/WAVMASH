@@ -31,8 +31,8 @@ YouTube / Spotify 링크로 WAV를 받고, BPM·Key·커버까지 정리하는 �
 brew install python@3.12 node ffmpeg git
 
 # 2) 클론
-git clone https://github.com/N-HPE/Wavemash.git
-cd Wavemash
+git clone https://github.com/N-HPE/WAVMASH.git
+cd WAVMASH
 
 # 3) 의존성 + .env + WAV 폴더
 chmod +x start_wavemash.sh scripts/setup_dev.sh

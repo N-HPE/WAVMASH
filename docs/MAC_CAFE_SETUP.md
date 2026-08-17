@@ -37,8 +37,8 @@ brew install python@3.12 node ffmpeg git
 
 ### 2) 코드
 ```bash
-git clone https://github.com/N-HPE/Wavemash.git
-cd Wavemash
+git clone https://github.com/N-HPE/WAVMASH.git
+cd WAVMASH
 git pull   # 이미 클론했다면
 chmod +x start_wavemash.sh scripts/setup_dev.sh
 ./scripts/setup_dev.sh
