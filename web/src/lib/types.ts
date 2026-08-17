@@ -36,17 +36,21 @@ export interface TrackUpdate {
 }
 
 export interface Playlist {
+  id?: string;
   name: string;
+  title?: string;
+  description?: string;
+  is_public?: boolean;
   track_ids: string[];
   track_count: number;
   activity?: number | null;
   last_activity?: number | null;
   /** 바이브(장르) 카테고리: pop | rnb | hiphop | house | techno | bass | chill | other */
-  vibe: string;
+  vibe?: string;
   /** 같은 바이브 안 세부 톤 (0=코어/대중, 클수록 밝고 가벼움) */
-  shade: number;
+  shade?: number;
   /** 표시용 hex 색상 */
-  color: string;
+  color?: string;
   /** local = 로컬 전용, spotify = 스포티파이 동기화 */
   source?: 'local' | 'spotify' | string;
   spotify_url?: string | null;
@@ -59,13 +63,18 @@ export interface Playlist {
   missing_count?: number | null;
 }
 
+
 export interface PlaylistCreate {
   name: string;
+  title?: string;
+  description?: string;
+  is_public?: boolean;
   track_ids?: string[];
   vibe?: string;
   shade?: number;
   color?: string;
 }
+
 
 export interface PlaylistUpdate {
   name?: string;
@@ -207,7 +216,9 @@ export interface ChartEntry {
 export interface Post {
   id: string;
   user_id: string;
-  track_id: string;
+  track_id?: string;
+  playlist_id?: string;
+  image_url?: string;
   caption: string;
   tags: string[];
   likes_count: number;
@@ -219,6 +230,7 @@ export interface Post {
   track?: Track;
   is_liked?: boolean;
 }
+
 
 
 export interface PostComment {

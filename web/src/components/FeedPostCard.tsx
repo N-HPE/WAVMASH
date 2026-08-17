@@ -1,8 +1,8 @@
 'use client';
 
 /* ──────────────────────────────────────────────
-   WaveMash — Instagram-Style Feed Post Card
-   인스타/릴스 감성: 앨범 자켓, 바이닐 스핀, 좋아요/댓글/다운로드/공유 4대 지표 카운터
+   WaveMash — Instagram-Style Music & Photo Post Card
+   인스타 감성: 감성 사진 비주얼, 바이닐 오디오 스트리밍, 내 플리에 담기(소장), YouTube 바로가기
    ────────────────────────────────────────────── */
 
 import React, { useState } from 'react';
@@ -20,15 +20,17 @@ import {
   Send,
   Trash2,
   ExternalLink,
-  Download,
+  Plus,
   Check,
   Sparkles,
+  Music,
 } from 'lucide-react';
 import type { Post, PostComment } from '@/lib/types';
 import api from '@/lib/api';
 import { useCoverGlow } from '@/lib/coverColors';
 import { usePlayer } from '@/contexts/PlayerContext';
 import ShareVinylCardModal from './ShareVinylCardModal';
+import AddToPlaylistModal from './AddToPlaylistModal';
 
 interface FeedPostCardProps {
   post: Post;
@@ -57,20 +59,19 @@ export default function FeedPostCard({
   const user = post.user;
   const { currentTrack, isPlaying: globalPlaying, play, togglePlay: globalTogglePlay } = usePlayer();
 
-  const isCurrentTrackPlaying = globalPlaying && currentTrack?.track_id === track?.track_id;
+  const isCurrentTrackPlaying = Boolean(track && globalPlaying && currentTrack?.track_id === track?.track_id);
 
   const [isLiked, setIsLiked] = useState(post.is_liked || false);
   const [likesCount, setLikesCount] = useState(post.likes_count || 0);
   const [sharesCount, setSharesCount] = useState(post.shares_count || 0);
   const [downloadsCount, setDownloadsCount] = useState(post.downloads_count || 0);
-  const [isDownloading, setIsDownloading] = useState(false);
-  const [isDownloaded, setIsDownloaded] = useState(false);
 
   const [showComments, setShowComments] = useState(false);
   const [comments, setComments] = useState<PostComment[]>([]);
   const [newComment, setNewComment] = useState('');
   const [loadingComments, setLoadingComments] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
+  const [showAddToPlaylistModal, setShowAddToPlaylistModal] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
 
   const coverUrl = track ? api.getCoverUrl(track.track_id, 600) : '';
@@ -97,28 +98,7 @@ export default function FeedPostCard({
     }
   };
 
-  // 2. 음원 다운로드 및 소장 핸들러
-  const handleDownload = async () => {
-    if (!track) return;
-    setIsDownloading(true);
-    try {
-      const videoUrl = track.url || `https://www.youtube.com/watch?v=${track.track_id}`;
-      await api.startDownload(videoUrl);
-      setIsDownloaded(true);
-      setDownloadsCount((prev) => prev + 1);
-      api.recordTrackDownload(track.track_id, {
-        title: track.title,
-        artist: track.artist,
-        cover_url: coverUrl,
-      });
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setIsDownloading(false);
-    }
-  };
-
-  // 3. 공유 핸들러 (스토리 모달 열기 + 카운트 증가)
+  // 2. 공유 핸들러 (스토리 모달 열기 + 카운트 증가)
   const handleShare = async () => {
     setShowShareModal(true);
     try {
@@ -129,8 +109,8 @@ export default function FeedPostCard({
     }
   };
 
-  // 4. 앨범 커버 클릭 시 통합 플레이어로 자동 재생
-  const handleCoverClick = () => {
+  // 3. 앨범/음악 클릭 시 통합 플레이어로 자동 재생
+  const handleMusicPlay = () => {
     if (!track) return;
     if (currentTrack?.track_id === track.track_id) {
       globalTogglePlay();
@@ -139,7 +119,7 @@ export default function FeedPostCard({
     }
   };
 
-  // 5. 댓글 목록 조회
+  // 4. 댓글 목록 조회
   const toggleCommentSection = async () => {
     const next = !showComments;
     setShowComments(next);
@@ -156,7 +136,7 @@ export default function FeedPostCard({
     }
   };
 
-  // 6. 댓글 작성
+  // 5. 댓글 작성
   const handleAddComment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newComment.trim()) return;
@@ -172,9 +152,8 @@ export default function FeedPostCard({
     }
   };
 
-  if (!track) return null;
-
-  const isOwner = currentUserId && user?.user_id === currentUserId;
+  const isOwner = Boolean(currentUserId && user?.user_id === currentUserId);
+  const youtubeLink = track ? (track.url || `https://www.youtube.com/watch?v=${track.track_id}`) : null;
 
   return (
     <>
@@ -182,7 +161,7 @@ export default function FeedPostCard({
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.4 }}
-        className="glass-strong rounded-3xl overflow-hidden border border-white/10 shadow-2xl bg-[#0b0b14]/80 backdrop-blur-xl"
+        className="glass-strong rounded-3xl overflow-hidden border border-white/10 shadow-2xl bg-[#0b0b14]/85 backdrop-blur-xl"
       >
         {/* ── 1. Post Header (Digger Profile) ── */}
         <div className="flex items-center justify-between p-4 border-b border-white/5">
@@ -216,7 +195,7 @@ export default function FeedPostCard({
           <div className="relative">
             <button
               onClick={() => setShowMenu(!showMenu)}
-              className="p-2 text-white/60 hover:text-white rounded-full hover:bg-white/5 transition-colors"
+              className="p-2 text-white/60 hover:text-white rounded-full hover:bg-white/5 transition-colors cursor-pointer"
             >
               <MoreHorizontal className="w-5 h-5" />
             </button>
@@ -233,13 +212,15 @@ export default function FeedPostCard({
                   <Share2 className="w-4 h-4 text-[#d4a853]" />
                   스토리 카드 생성
                 </button>
-                <Link
-                  href={`/track/${track.track_id}`}
-                  className="w-full flex items-center gap-2 px-3 py-2 text-white hover:bg-white/10 text-left"
-                >
-                  <ExternalLink className="w-4 h-4" />
-                  트랙 상세 보기
-                </Link>
+                {track && (
+                  <Link
+                    href={`/track/${track.track_id}`}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-white hover:bg-white/10 text-left"
+                  >
+                    <ExternalLink className="w-4 h-4" />
+                    트랙 상세 보기
+                  </Link>
+                )}
                 {isOwner && (
                   <button
                     onClick={() => {
@@ -257,84 +238,123 @@ export default function FeedPostCard({
           </div>
         </div>
 
-        {/* ── 2. Vinyl & Cover Showcase (Visual + Audio) ── */}
-        <div
-          className="relative aspect-square w-full overflow-hidden bg-[#080811] flex items-center justify-center group cursor-pointer"
-          style={{ '--glow-color': glowColor } as React.CSSProperties}
-          onClick={handleCoverClick}
-        >
-          {/* Ambient Glow */}
-          <div
-            className="absolute inset-0 opacity-40 blur-3xl transition-opacity duration-700 pointer-events-none"
-            style={{ backgroundColor: glowColor }}
-          />
-
-          {/* Vinyl Disc Slipout Animation */}
-          <div
-            className={`absolute z-10 w-4/5 h-4/5 rounded-full bg-black border-4 border-[#222] shadow-2xl flex items-center justify-center transition-all duration-700 ${
-              isCurrentTrackPlaying
-                ? 'right-4 rotate-180 animate-spin'
-                : 'right-10 group-hover:right-6'
-            }`}
-            style={{ animationDuration: '4s' }}
-          >
-            <div className="w-28 h-28 rounded-full border border-white/20 bg-gradient-to-tr from-[#2a1b0a] to-[#d4a853]/40 flex items-center justify-center">
-              <div className="w-8 h-8 rounded-full bg-black border border-white/20" />
-            </div>
-          </div>
-
-          {/* Album Cover Art */}
-          <div className="relative z-20 w-4/5 h-4/5 rounded-2xl overflow-hidden shadow-2xl border border-white/15 bg-[#141424]">
-            {track.has_cover ? (
+        {/* ── 2. Photo & Music Visual Media Area ── */}
+        <div className="relative w-full overflow-hidden bg-[#080811] flex flex-col justify-center">
+          {post.image_url ? (
+            /* 2-A. User Uploaded Photo Showcase */
+            <div className="relative aspect-square w-full overflow-hidden bg-black group">
               <img
-                src={coverUrl}
-                alt={track.title}
+                src={post.image_url}
+                alt="Feed Post"
                 className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
-                loading="lazy"
               />
-            ) : (
-              <div className="w-full h-full flex items-center justify-center bg-white/5">
-                <Disc3 className="w-20 h-20 text-white/20" />
-              </div>
-            )}
 
-            {/* Center Play Overlay */}
-            <div className="absolute inset-0 flex items-center justify-center bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity">
-              <div className="w-14 h-14 rounded-full bg-[#d4a853] text-black flex items-center justify-center shadow-xl transform group-hover:scale-110 transition-transform">
-                {isCurrentTrackPlaying ? (
-                  <Pause className="w-6 h-6 fill-current" />
+              {/* Floating Music Badge on Photo */}
+              {track && (
+                <div
+                  onClick={handleMusicPlay}
+                  className="absolute bottom-4 left-4 right-4 p-3 rounded-2xl glass-strong border border-white/20 shadow-2xl flex items-center justify-between gap-3 cursor-pointer group/music hover:border-[#d4a853]/60 transition-all backdrop-blur-md"
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="relative w-10 h-10 rounded-xl overflow-hidden bg-black/60 shrink-0">
+                      {track.has_cover ? (
+                        <img
+                          src={track.thumbnail_url || api.getCoverUrl(track.track_id, 160)}
+                          alt={track.title}
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center">
+                          <Disc3 className="w-5 h-5 text-[#d4a853]" />
+                        </div>
+                      )}
+                      <div className="absolute inset-0 bg-black/30 flex items-center justify-center">
+                        {isCurrentTrackPlaying ? (
+                          <Pause className="w-4 h-4 text-[#d4a853] fill-current" />
+                        ) : (
+                          <Play className="w-4 h-4 text-white fill-current ml-0.5" />
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold text-white truncate group-hover/music:text-[#d4a853] transition-colors">
+                        {track.title}
+                      </p>
+                      <p className="text-[10px] text-muted-foreground truncate">
+                        {track.artist}
+                      </p>
+                    </div>
+                  </div>
+
+                  <span className="text-[10px] font-mono font-semibold px-2.5 py-1 rounded-full bg-[#d4a853] text-black shadow-md shrink-0 flex items-center gap-1">
+                    <Disc3 className={`w-3 h-3 ${isCurrentTrackPlaying ? 'animate-spin' : ''}`} />
+                    {isCurrentTrackPlaying ? '재생 중' : '음악 듣기'}
+                  </span>
+                </div>
+              )}
+            </div>
+          ) : track ? (
+            /* 2-B. Vinyl Slipout Showcase (when no photo uploaded) */
+            <div
+              className="relative aspect-square w-full overflow-hidden bg-[#080811] flex items-center justify-center group cursor-pointer"
+              style={{ '--glow-color': glowColor } as React.CSSProperties}
+              onClick={handleMusicPlay}
+            >
+              {/* Ambient Glow */}
+              <div
+                className="absolute inset-0 opacity-40 blur-3xl transition-opacity duration-700 pointer-events-none"
+                style={{ backgroundColor: glowColor }}
+              />
+
+              {/* Vinyl Disc Slipout Animation */}
+              <div
+                className={`absolute z-10 w-4/5 h-4/5 rounded-full bg-black border-4 border-[#222] shadow-2xl flex items-center justify-center transition-all duration-700 ${
+                  isCurrentTrackPlaying
+                    ? 'right-4 rotate-180 animate-spin'
+                    : 'right-10 group-hover:right-6'
+                }`}
+                style={{ animationDuration: '4s' }}
+              >
+                <div className="w-28 h-28 rounded-full border border-white/20 bg-gradient-to-tr from-[#2a1b0a] to-[#d4a853]/40 flex items-center justify-center">
+                  <div className="w-8 h-8 rounded-full bg-black border border-white/20" />
+                </div>
+              </div>
+
+              {/* Album Cover Art */}
+              <div className="relative z-20 w-4/5 h-4/5 rounded-2xl overflow-hidden shadow-2xl border border-white/15 bg-[#141424]">
+                {track.has_cover ? (
+                  <img
+                    src={coverUrl}
+                    alt={track.title}
+                    className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
+                    loading="lazy"
+                  />
                 ) : (
-                  <Play className="w-6 h-6 fill-current ml-1" />
+                  <div className="w-full h-full flex items-center justify-center bg-white/5">
+                    <Disc3 className="w-20 h-20 text-white/20" />
+                  </div>
                 )}
+
+                {/* Center Play Overlay */}
+                <div className="absolute inset-0 flex items-center justify-center bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <div className="w-14 h-14 rounded-full bg-[#d4a853] text-black flex items-center justify-center shadow-xl transform group-hover:scale-110 transition-transform">
+                    {isCurrentTrackPlaying ? (
+                      <Pause className="w-6 h-6 fill-current" />
+                    ) : (
+                      <Play className="w-6 h-6 fill-current ml-1" />
+                    )}
+                  </div>
+                </div>
               </div>
             </div>
-
-            {/* Corner Badges */}
-            <div className="absolute top-3 left-3 flex gap-1.5 z-30">
-              <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-black/60 text-[#d4a853] border border-[#d4a853]/30 backdrop-blur-md">
-                {track.format || 'WAV'}
-              </span>
-            </div>
-
-            <div className="absolute bottom-3 right-3 flex gap-1.5 z-30">
-              {track.bpm > 0 && (
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-black/70 text-white backdrop-blur-md">
-                  {Math.round(track.bpm)} BPM
-                </span>
-              )}
-              {track.key && (
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-black/70 text-white backdrop-blur-md">
-                  {track.key}
-                </span>
-              )}
-            </div>
-          </div>
+          ) : null}
         </div>
 
-        {/* ── 3. Instagram / Reels Style 4-Action Metrics Bar ── */}
+        {/* ── 3. Instagram Style Metrics & Collection Action Bar ── */}
         <div className="px-4 pt-3.5 pb-2">
           <div className="flex items-center justify-between mb-2.5">
-            <div className="flex items-center gap-5 sm:gap-6">
+            <div className="flex items-center gap-5">
               {/* ① Like Counter */}
               <motion.button
                 whileTap={{ scale: 0.8 }}
@@ -364,27 +384,7 @@ export default function FeedPostCard({
                 </span>
               </button>
 
-              {/* ③ Download / Dig Counter */}
-              <motion.button
-                whileTap={{ scale: 0.8 }}
-                onClick={handleDownload}
-                disabled={isDownloading}
-                className={`flex items-center gap-1.5 transition-colors group cursor-pointer ${
-                  isDownloaded ? 'text-green-400 font-bold' : 'text-white/80 hover:text-[#d4a853]'
-                }`}
-                title="24bit WAV 무손실 소장(다운로드)"
-              >
-                {isDownloaded ? (
-                  <Check className="w-6 h-6 text-green-400" />
-                ) : (
-                  <Download className={`w-6 h-6 group-hover:scale-110 transition-transform ${isDownloading ? 'animate-bounce' : ''}`} />
-                )}
-                <span className="text-xs font-bold font-mono">
-                  {formatCount(downloadsCount)}
-                </span>
-              </motion.button>
-
-              {/* ④ Share Counter */}
+              {/* ③ Share Counter */}
               <motion.button
                 whileTap={{ scale: 0.8 }}
                 onClick={handleShare}
@@ -397,16 +397,44 @@ export default function FeedPostCard({
                 </span>
               </motion.button>
             </div>
+
+            {/* Quick Action Hub: [내 플리에 담기(소장)] + [유튜브 바로가기] */}
+            <div className="flex items-center gap-2">
+              {track && (
+                <button
+                  onClick={() => setShowAddToPlaylistModal(true)}
+                  className="px-3 py-1.5 rounded-full bg-[#d4a853]/15 hover:bg-[#d4a853] text-[#d4a853] hover:text-black border border-[#d4a853]/40 text-xs font-bold transition-all flex items-center gap-1 cursor-pointer shadow-md"
+                  title="내 플레이리스트에 담기"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  플리에 소장
+                </button>
+              )}
+
+              {youtubeLink && (
+                <a
+                  href={youtubeLink}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="p-2 rounded-full bg-white/5 hover:bg-white/10 text-white/70 hover:text-white border border-white/10 transition-colors"
+                  title="유튜브에서 바로 보기"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                </a>
+              )}
+            </div>
           </div>
 
-          {/* ── 4. Track Info & Digger's Note ── */}
+          {/* ── 4. Track Info & Digger's Story Note ── */}
           <div className="space-y-1.5 pt-1">
-            <div className="flex items-baseline gap-2">
-              <h3 className="font-bold text-sm text-white hover:text-[#d4a853] transition-colors">
-                <Link href={`/track/${track.track_id}`}>{track.title}</Link>
-              </h3>
-              <span className="text-xs text-muted-foreground">{track.artist}</span>
-            </div>
+            {track && (
+              <div className="flex items-baseline gap-2">
+                <h3 className="font-bold text-sm text-white hover:text-[#d4a853] transition-colors">
+                  <Link href={`/track/${track.track_id}`}>{track.title}</Link>
+                </h3>
+                <span className="text-xs text-muted-foreground">{track.artist}</span>
+              </div>
+            )}
 
             {/* Digger's Note / Caption */}
             {post.caption && (
@@ -497,12 +525,21 @@ export default function FeedPostCard({
       </motion.article>
 
       {/* ── 6. 9:16 Instagram Story Card Modal ── */}
-      {showShareModal && (
+      {showShareModal && track && (
         <ShareVinylCardModal
           isOpen={showShareModal}
           onClose={() => setShowShareModal(false)}
           track={track}
           user={user}
+        />
+      )}
+
+      {/* ── 7. Add to Playlist (소장하기) Modal ── */}
+      {showAddToPlaylistModal && track && (
+        <AddToPlaylistModal
+          isOpen={showAddToPlaylistModal}
+          onClose={() => setShowAddToPlaylistModal(false)}
+          track={track}
         />
       )}
     </>

@@ -319,11 +319,13 @@ CREATE POLICY "Users can unlike playlists" ON public.playlist_likes
 -- 8. Instagram-Style Collection Feed (Posts, Comments, Likes, Highlights)
 -- ═══════════════════════════════════════════════════════════════════════════
 
--- Posts (Digger's Feed Posts)
+-- Posts (Digger's Feed Posts: 사진 + 음악/플리 매칭 감성 포스트)
 CREATE TABLE IF NOT EXISTS public.posts (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     user_id UUID NOT NULL REFERENCES public.profiles(user_id) ON DELETE CASCADE,
-    track_id TEXT NOT NULL REFERENCES public.tracks(track_id) ON DELETE CASCADE,
+    track_id TEXT REFERENCES public.tracks(track_id) ON DELETE CASCADE,
+    playlist_id UUID REFERENCES public.playlists(id) ON DELETE SET NULL,
+    image_url TEXT DEFAULT '',
     caption TEXT DEFAULT '',
     tags TEXT[] DEFAULT '{}',
     likes_count INTEGER DEFAULT 0,
@@ -336,6 +338,12 @@ CREATE TABLE IF NOT EXISTS public.posts (
 -- Ensure columns exist if table was already created
 DO $$
 BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'posts' AND column_name = 'image_url') THEN
+        ALTER TABLE public.posts ADD COLUMN image_url TEXT DEFAULT '';
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'posts' AND column_name = 'playlist_id') THEN
+        ALTER TABLE public.posts ADD COLUMN playlist_id UUID REFERENCES public.playlists(id) ON DELETE SET NULL;
+    END IF;
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'posts' AND column_name = 'shares_count') THEN
         ALTER TABLE public.posts ADD COLUMN shares_count INTEGER DEFAULT 0;
     END IF;
@@ -349,6 +357,7 @@ BEGIN
         ALTER TABLE public.tracks ADD COLUMN likes_count INTEGER DEFAULT 0;
     END IF;
 END $$;
+
 
 
 CREATE INDEX IF NOT EXISTS idx_posts_user ON public.posts(user_id, created_at DESC);

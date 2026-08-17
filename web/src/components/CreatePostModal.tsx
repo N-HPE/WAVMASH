@@ -1,13 +1,27 @@
 'use client';
 
 /* ──────────────────────────────────────────────
-   WaveMash — Create Post Modal (Digger's Note)
-   내 소장 트랙 선택 및 감성 코멘트/태그 피드 작성 모달
+   WaveMash — Create Music & Photo Post Modal
+   인스타 감성: 감성 사진 업로드 + 어울리는 음악(유튜브/트랙) 매칭 + Digger's Note 포스팅
    ────────────────────────────────────────────── */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Search, Disc3, Sparkles, Plus, Check } from 'lucide-react';
+import {
+  X,
+  Search,
+  Disc3,
+  Sparkles,
+  Plus,
+  Check,
+  Image as ImageIcon,
+  Upload,
+  Link as LinkIcon,
+  Music,
+  Trash2,
+  Play,
+  Loader2,
+} from 'lucide-react';
 import type { Track, Post } from '@/lib/types';
 import api from '@/lib/api';
 
@@ -18,7 +32,16 @@ interface CreatePostModalProps {
   initialTrack?: Track | null;
 }
 
-const PRESET_TAGS = ['Vinyl', 'FrenchTouch', 'DeepHouse', 'LateNight', 'ClubBanger', '90sGroove', 'LosslessWAV', 'RareFind'];
+const PRESET_TAGS = [
+  'VinylMood',
+  'NightDrive',
+  'CafeVibes',
+  'FrenchHouse',
+  'DeepGroove',
+  'AnalogSound',
+  'DailyMusic',
+  'DiggerChoice',
+];
 
 export default function CreatePostModal({
   isOpen,
@@ -26,11 +49,22 @@ export default function CreatePostModal({
   onPostCreated,
   initialTrack,
 }: CreatePostModalProps) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Photo state
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+
+  // Music state
   const [tracks, setTracks] = useState<Track[]>([]);
   const [selectedTrack, setSelectedTrack] = useState<Track | null>(initialTrack || null);
+  const [youtubeUrlInput, setYoutubeUrlInput] = useState('');
+  const [isYoutubeMatching, setIsYoutubeMatching] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [musicTab, setMusicTab] = useState<'library' | 'youtube'>('library');
+
+  // Text & tags state
   const [caption, setCaption] = useState('');
-  const [tags, setTags] = useState<string[]>(['Vinyl']);
+  const [tags, setTags] = useState<string[]>(['VinylMood']);
   const [customTag, setCustomTag] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [loadingTracks, setLoadingTracks] = useState(false);
@@ -53,6 +87,69 @@ export default function CreatePostModal({
   }, [isOpen]);
 
   if (!isOpen) return null;
+
+  // Handle Photo Upload
+  const handlePhotoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setPhotoPreview(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  // Handle YouTube URL Direct Match
+  const handleMatchYouTube = async () => {
+    const url = youtubeUrlInput.trim();
+    if (!url) return;
+
+    setIsYoutubeMatching(true);
+    try {
+      // YouTube Video ID 추출
+      let videoId = '';
+      const match = url.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([\w-]{11})/);
+      if (match) {
+        videoId = match[1];
+      } else if (/^[\w-]{11}$/.test(url)) {
+        videoId = url;
+      }
+
+      if (!videoId) {
+        alert('유효한 유튜브 영상 링크를 입력해주세요.');
+        setIsYoutubeMatching(false);
+        return;
+      }
+
+      const matchedTrack: Track = {
+        track_id: videoId,
+        title: 'YouTube Track',
+        artist: 'Curation',
+        primary_artist: 'Curation',
+        album: 'YouTube Music',
+        genre: 'Mood',
+        year: new Date().getFullYear().toString(),
+        bpm: 0,
+        key: '',
+        camelot_key: '',
+        energy_level: 0,
+        platform: 'YouTube',
+        url: `https://www.youtube.com/watch?v=${videoId}`,
+        thumbnail_url: `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`,
+        has_cover: true,
+        has_file: false,
+      };
+
+      setSelectedTrack(matchedTrack);
+      setYoutubeUrlInput('');
+    } catch (err) {
+      console.error(err);
+      alert('유튜브 곡 매칭에 실패했습니다.');
+    } finally {
+      setIsYoutubeMatching(false);
+    }
+  };
 
   const filteredTracks = tracks.filter(
     (t) =>
@@ -81,21 +178,26 @@ export default function CreatePostModal({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedTrack || submitting) return;
+    if ((!selectedTrack && !photoPreview) || submitting) return;
 
     setSubmitting(true);
     try {
       const newPost = await api.createPost({
-        track_id: selectedTrack.track_id,
+        track_id: selectedTrack?.track_id,
+        image_url: photoPreview || '',
         caption: caption.trim(),
         tags,
       });
-      // 트랙 정보 병합
-      newPost.track = selectedTrack;
+
+      newPost.track = selectedTrack || undefined;
+      newPost.image_url = photoPreview || undefined;
+
       onPostCreated?.(newPost);
       onClose();
+
       // Reset form
       setCaption('');
+      setPhotoPreview(null);
       setSelectedTrack(null);
     } catch (err) {
       console.error('Failed to create post:', err);
@@ -107,40 +209,93 @@ export default function CreatePostModal({
 
   return (
     <AnimatePresence>
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md overflow-y-auto">
         <motion.div
           initial={{ opacity: 0, scale: 0.95, y: 20 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.95, y: 20 }}
-          className="relative max-w-lg w-full bg-[#0e0e1a] border border-white/10 rounded-2xl overflow-hidden shadow-2xl p-6"
+          className="relative max-w-lg w-full bg-[#0d0d17] border border-white/15 rounded-3xl overflow-hidden shadow-2xl p-6 my-8"
         >
           {/* Close button */}
           <button
             onClick={onClose}
-            className="absolute top-4 right-4 text-muted-foreground hover:text-white transition-colors"
+            className="absolute top-5 right-5 text-muted-foreground hover:text-white transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
 
-          <div className="flex items-center gap-2 mb-6 text-sm font-semibold text-[#d4a853]">
+          {/* Modal Header */}
+          <div className="flex items-center gap-2 mb-5 text-sm font-bold text-[#d4a853]">
             <Sparkles className="w-4 h-4" />
-            내 컬렉션 소장곡 자랑하기
+            감성 사진 & 음악 피드 올리기
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-5">
-            {/* ── 1. Select Track ── */}
+            {/* ── 1. Photo Upload Section (인스타 감성 사진) ── */}
             <div>
-              <label className="block text-xs font-semibold text-white/80 uppercase tracking-wider mb-2">
-                소장 트랙 선택
+              <label className="block text-xs font-bold text-white/90 uppercase tracking-wider mb-2 flex items-center justify-between">
+                <span>📸 감성 사진 업로드</span>
+                <span className="text-[10px] text-muted-foreground font-normal">
+                  (LP판, 일상 사진, 여행, 무드샷)
+                </span>
+              </label>
+
+              <input
+                type="file"
+                ref={fileInputRef}
+                accept="image/*"
+                onChange={handlePhotoSelect}
+                className="hidden"
+              />
+
+              {photoPreview ? (
+                <div className="relative aspect-video sm:aspect-[16/10] rounded-2xl overflow-hidden bg-black/50 border border-white/15 group">
+                  <img
+                    src={photoPreview}
+                    alt="Upload Preview"
+                    className="w-full h-full object-cover"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setPhotoPreview(null)}
+                    className="absolute top-3 right-3 p-1.5 rounded-full bg-black/70 text-red-400 hover:bg-red-500 hover:text-white transition-colors shadow-lg"
+                    title="사진 삭제"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              ) : (
+                <div
+                  onClick={() => fileInputRef.current?.click()}
+                  className="border-2 border-dashed border-white/15 hover:border-[#d4a853]/60 rounded-2xl p-6 text-center cursor-pointer transition-all bg-white/[0.02] hover:bg-white/[0.05] group"
+                >
+                  <div className="w-12 h-12 rounded-full bg-[#d4a853]/15 text-[#d4a853] flex items-center justify-center mx-auto mb-2 group-hover:scale-110 transition-transform">
+                    <ImageIcon className="w-6 h-6" />
+                  </div>
+                  <p className="text-xs font-semibold text-white mb-1">
+                    어울리는 사진 추가하기
+                  </p>
+                  <p className="text-[10px] text-muted-foreground">
+                    클릭하여 사진 파일(JPG, PNG)을 선택하세요
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* ── 2. Match Music / Track (어울리는 음악 선택) ── */}
+            <div>
+              <label className="block text-xs font-bold text-white/90 uppercase tracking-wider mb-2 flex items-center justify-between">
+                <span>🎵 사진에 어울리는 음악 매칭</span>
+                <span className="text-[10px] text-[#d4a853] font-semibold">필수</span>
               </label>
 
               {selectedTrack ? (
-                <div className="flex items-center justify-between p-3 rounded-xl bg-white/5 border border-[#d4a853]/40">
-                  <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 rounded-lg overflow-hidden bg-black/40 border border-white/10 shrink-0">
+                <div className="flex items-center justify-between p-3 rounded-2xl bg-white/5 border border-[#d4a853]/40">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-12 h-12 rounded-xl overflow-hidden bg-black/50 border border-white/10 shrink-0">
                       {selectedTrack.has_cover ? (
                         <img
-                          src={api.getCoverUrl(selectedTrack.track_id, 120)}
+                          src={selectedTrack.thumbnail_url || api.getCoverUrl(selectedTrack.track_id, 120)}
                           alt={selectedTrack.title}
                           className="w-full h-full object-cover"
                         />
@@ -150,87 +305,142 @@ export default function CreatePostModal({
                         </div>
                       )}
                     </div>
-                    <div>
-                      <h4 className="text-sm font-bold text-white truncate max-w-[240px]">
+                    <div className="min-w-0">
+                      <h4 className="text-xs font-bold text-white truncate">
                         {selectedTrack.title}
                       </h4>
-                      <p className="text-xs text-muted-foreground truncate">{selectedTrack.artist}</p>
+                      <p className="text-[11px] text-muted-foreground truncate">
+                        {selectedTrack.artist}
+                      </p>
                     </div>
                   </div>
                   <button
                     type="button"
                     onClick={() => setSelectedTrack(null)}
-                    className="text-xs text-[#d4a853] hover:underline"
+                    className="text-xs text-[#d4a853] hover:underline shrink-0 font-semibold cursor-pointer ml-2"
                   >
                     변경
                   </button>
                 </div>
               ) : (
-                <div className="space-y-2">
-                  <div className="relative">
-                    <Search className="absolute left-3 top-2.5 w-4 h-4 text-muted-foreground" />
-                    <input
-                      type="text"
-                      placeholder="내 라이브러리 트랙 검색..."
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      className="w-full bg-white/5 border border-white/10 rounded-xl pl-9 pr-4 py-2 text-xs text-white placeholder:text-muted-foreground focus:outline-none focus:border-[#d4a853]"
-                    />
+                <div className="space-y-3">
+                  {/* Tab Selector */}
+                  <div className="flex rounded-xl bg-white/5 p-1 border border-white/10">
+                    <button
+                      type="button"
+                      onClick={() => setMusicTab('library')}
+                      className={`flex-1 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                        musicTab === 'library'
+                          ? 'bg-[#d4a853] text-black shadow-md'
+                          : 'text-muted-foreground hover:text-white'
+                      }`}
+                    >
+                      내 라이브러리 곡
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setMusicTab('youtube')}
+                      className={`flex-1 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                        musicTab === 'youtube'
+                          ? 'bg-[#d4a853] text-black shadow-md'
+                          : 'text-muted-foreground hover:text-white'
+                      }`}
+                    >
+                      유튜브 링크로 추가
+                    </button>
                   </div>
 
-                  <div className="max-h-40 overflow-y-auto space-y-1 pr-1 scrollbar-thin">
-                    {loadingTracks ? (
-                      <p className="text-xs text-muted-foreground text-center py-4">트랙 불러오는 중...</p>
-                    ) : filteredTracks.length === 0 ? (
-                      <p className="text-xs text-muted-foreground text-center py-4">검색된 트랙이 없습니다.</p>
-                    ) : (
-                      filteredTracks.slice(0, 10).map((t) => (
-                        <div
-                          key={t.track_id}
-                          onClick={() => setSelectedTrack(t)}
-                          className="flex items-center gap-3 p-2 rounded-lg hover:bg-white/10 cursor-pointer transition-colors"
-                        >
-                          <div className="w-8 h-8 rounded bg-black/40 overflow-hidden shrink-0">
-                            {t.has_cover ? (
-                              <img
-                                src={api.getCoverUrl(t.track_id, 80)}
-                                alt={t.title}
-                                className="w-full h-full object-cover"
-                              />
-                            ) : (
-                              <Disc3 className="w-full h-full p-1 text-white/40" />
-                            )}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-xs font-semibold text-white truncate">{t.title}</p>
-                            <p className="text-[10px] text-muted-foreground truncate">{t.artist}</p>
-                          </div>
-                        </div>
-                      ))
-                    )}
-                  </div>
+                  {musicTab === 'youtube' ? (
+                    <div className="flex gap-2">
+                      <div className="relative flex-1">
+                        <LinkIcon className="absolute left-3 top-2.5 w-4 h-4 text-muted-foreground" />
+                        <input
+                          type="text"
+                          placeholder="YouTube 영상 링크 또는 ID 입력..."
+                          value={youtubeUrlInput}
+                          onChange={(e) => setYoutubeUrlInput(e.target.value)}
+                          className="w-full bg-white/5 border border-white/10 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder:text-muted-foreground focus:outline-none focus:border-[#d4a853]"
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleMatchYouTube}
+                        disabled={!youtubeUrlInput.trim() || isYoutubeMatching}
+                        className="px-4 py-2 rounded-xl bg-[#d4a853] text-black font-bold text-xs hover:bg-amber-400 transition-colors disabled:opacity-50 flex items-center gap-1"
+                      >
+                        {isYoutubeMatching ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : '매칭'}
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <div className="relative">
+                        <Search className="absolute left-3 top-2.5 w-4 h-4 text-muted-foreground" />
+                        <input
+                          type="text"
+                          placeholder="소장 트랙 검색..."
+                          value={searchQuery}
+                          onChange={(e) => setSearchQuery(e.target.value)}
+                          className="w-full bg-white/5 border border-white/10 rounded-xl pl-9 pr-4 py-2 text-xs text-white placeholder:text-muted-foreground focus:outline-none focus:border-[#d4a853]"
+                        />
+                      </div>
+
+                      <div className="max-h-36 overflow-y-auto space-y-1 pr-1 scrollbar-thin">
+                        {loadingTracks ? (
+                          <p className="text-xs text-muted-foreground text-center py-4">트랙 불러오는 중...</p>
+                        ) : filteredTracks.length === 0 ? (
+                          <p className="text-xs text-muted-foreground text-center py-4">
+                            검색된 트랙이 없습니다. 유튜브 탭에서 링크로 바로 매칭해보세요!
+                          </p>
+                        ) : (
+                          filteredTracks.slice(0, 10).map((t) => (
+                            <div
+                              key={t.track_id}
+                              onClick={() => setSelectedTrack(t)}
+                              className="flex items-center gap-3 p-2 rounded-xl hover:bg-white/10 cursor-pointer transition-colors"
+                            >
+                              <div className="w-8 h-8 rounded bg-black/40 overflow-hidden shrink-0">
+                                {t.has_cover ? (
+                                  <img
+                                    src={api.getCoverUrl(t.track_id, 80)}
+                                    alt={t.title}
+                                    className="w-full h-full object-cover"
+                                  />
+                                ) : (
+                                  <Disc3 className="w-full h-full p-1 text-white/40" />
+                                )}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-xs font-semibold text-white truncate">{t.title}</p>
+                                <p className="text-[10px] text-muted-foreground truncate">{t.artist}</p>
+                              </div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
 
-            {/* ── 2. Digger's Note (Caption) ── */}
+            {/* ── 3. Digger's Note (Caption) ── */}
             <div>
-              <label className="block text-xs font-semibold text-white/80 uppercase tracking-wider mb-2">
-                디거스 노트 (Digger&apos;s Note / 감성 코멘트)
+              <label className="block text-xs font-bold text-white/90 uppercase tracking-wider mb-2">
+                ✍️ 디거스 스토리 (Digger&apos;s Note)
               </label>
               <textarea
-                rows={3}
-                placeholder="이 트랙을 소장하게 된 이유나 감상평을 남겨보세요. (예: 90년대 프렌치 하우스의 정점, 새벽 드라이브 필수 트랙)"
+                rows={2}
+                placeholder="이 사진과 음악에 얽힌 이야기나 감상을 남겨보세요. (예: 비 오는 날 한남동 바이닐 바에서 흘러나오던 음악)"
                 value={caption}
                 onChange={(e) => setCaption(e.target.value)}
-                className="w-full bg-white/5 border border-white/10 rounded-xl p-3 text-xs text-white placeholder:text-muted-foreground focus:outline-none focus:border-[#d4a853] resize-none"
+                className="w-full bg-white/5 border border-white/10 rounded-2xl p-3 text-xs text-white placeholder:text-muted-foreground focus:outline-none focus:border-[#d4a853] resize-none leading-relaxed"
               />
             </div>
 
-            {/* ── 3. Tags ── */}
+            {/* ── 4. Tags ── */}
             <div>
-              <label className="block text-xs font-semibold text-white/80 uppercase tracking-wider mb-2">
-                태그 선택
+              <label className="block text-xs font-bold text-white/90 uppercase tracking-wider mb-2">
+                무드 태그
               </label>
               <div className="flex flex-wrap gap-1.5 mb-2">
                 {PRESET_TAGS.map((tag) => {
@@ -240,7 +450,7 @@ export default function CreatePostModal({
                       type="button"
                       key={tag}
                       onClick={() => toggleTag(tag)}
-                      className={`text-[11px] px-2.5 py-1 rounded-full border transition-all ${
+                      className={`text-[11px] px-2.5 py-1 rounded-full border transition-all cursor-pointer ${
                         active
                           ? 'bg-[#d4a853] text-black border-[#d4a853] font-semibold'
                           : 'bg-white/5 text-white/70 border-white/10 hover:bg-white/10'
@@ -265,10 +475,10 @@ export default function CreatePostModal({
             <button
               type="submit"
               disabled={!selectedTrack || submitting}
-              className="w-full py-3 rounded-xl bg-gradient-to-r from-[#d4a853] to-amber-400 text-black font-bold text-sm hover:opacity-95 transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-lg shadow-[#d4a853]/20 flex items-center justify-center gap-2"
+              className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-[#d4a853] to-amber-400 text-black font-bold text-sm hover:opacity-95 transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-xl shadow-[#d4a853]/20 flex items-center justify-center gap-2 cursor-pointer"
             >
               <Check className="w-4 h-4" />
-              {submitting ? '게시 중...' : '피드에 자랑하기'}
+              {submitting ? '게시 중...' : '피드에 공유하기'}
             </button>
           </form>
         </motion.div>

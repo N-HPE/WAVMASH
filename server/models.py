@@ -240,10 +240,20 @@ class ChartEntry(BaseModel):
     thumbnail_url: str | None = None
 
 class PostCreate(BaseModel):
-    """인스타 피드 포스트 생성."""
-    track_id: str
+    """인스타 피드 포스트 생성 (사진 + 음악/플리 매칭)."""
+    track_id: str | None = None
+    playlist_id: str | None = None
+    image_url: str | None = None
     caption: str = ""
     tags: list[str] = Field(default_factory=list)
+
+class PlaylistTrackAdd(BaseModel):
+    """플레이리스트에 트랙 추가 요청."""
+    track_id: str
+    title: str | None = None
+    artist: str | None = None
+    cover_url: str | None = None
+
 
 class PostCommentCreate(BaseModel):
     """포스트 댓글 생성."""

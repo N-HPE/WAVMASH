@@ -554,7 +554,7 @@ async def create_post(
     req: PostCreate,
     user_id: str = Depends(get_current_user),
 ):
-    """소장 트랙에 대한 감성 피드 포스트를 작성합니다."""
+    """사진 및 음악/플리를 매칭한 감성 피드 포스트를 작성합니다."""
     if not is_supabase_enabled():
         raise HTTPException(status_code=500, detail="Supabase가 설정되지 않았습니다.")
 
@@ -565,6 +565,8 @@ async def create_post(
     payload = {
         "user_id": user_id,
         "track_id": req.track_id,
+        "playlist_id": req.playlist_id,
+        "image_url": req.image_url or "",
         "caption": req.caption,
         "tags": req.tags,
     }
@@ -581,10 +583,54 @@ async def create_post(
         "created_post",
         "post",
         str(post.get("id", "")),
-        {"track_id": req.track_id, "caption": req.caption[:50]},
+        {"track_id": req.track_id, "image_url": req.image_url, "caption": req.caption[:50]},
     )
 
     return post
+
+
+@router.post("/playlists/{playlist_id}/tracks")
+async def add_track_to_playlist(
+    playlist_id: str,
+    req: PlaylistTrackAdd,
+    user_id: str = Depends(get_current_user),
+):
+    """내 플레이리스트에 트랙을 추가(소장)합니다."""
+    if not is_supabase_enabled():
+        raise HTTPException(status_code=500, detail="Supabase가 설정되지 않았습니다.")
+
+    headers = get_headers()
+    headers["Prefer"] = "return=representation"
+
+    # 1. 플레이리스트 소유자 검증
+    p_resp = http_requests.get(
+        f"{_SUPABASE_URL}/rest/v1/playlists",
+        headers=headers,
+        params={"id": f"eq.{playlist_id}", "user_id": f"eq.{user_id}"},
+        timeout=5,
+    )
+    if not p_resp.ok or not p_resp.json():
+        raise HTTPException(status_code=403, detail="플레이리스트 접근 권한이 없습니다.")
+
+    # 2. playlist_tracks에 추가
+    pt_url = f"{_SUPABASE_URL}/rest/v1/playlist_tracks"
+    payload = {
+        "playlist_id": playlist_id,
+        "track_id": req.track_id,
+    }
+    resp = http_requests.post(pt_url, headers=headers, json=payload, timeout=5)
+
+    # 3. 활동 피드 기록 (소장 활동)
+    _create_activity(
+        user_id,
+        "collected_track",
+        "playlist",
+        playlist_id,
+        {"track_id": req.track_id, "title": req.title, "artist": req.artist},
+    )
+
+    return {"message": "플레이리스트에 트랙이 추가되었습니다.", "success": True}
+
 
 
 @router.delete("/posts/{post_id}", response_model=MessageResponse)

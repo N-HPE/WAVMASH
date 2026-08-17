@@ -221,15 +221,27 @@ class WaveMashAPI {
     );
   }
 
-  async addTrackToPlaylist(name: string, trackId: string): Promise<void> {
-    return this.fetch<void>(
-      `/api/playlists/${encodeURIComponent(name)}/tracks`,
-      {
-        method: 'POST',
-        body: JSON.stringify({ track_id: trackId }),
-      }
-    );
+  async addTrackToPlaylist(
+    nameOrId: string,
+    trackId: string,
+    meta?: { title?: string; artist?: string; cover_url?: string }
+  ): Promise<any> {
+    const isSocial = nameOrId.includes('-') && nameOrId.length > 20;
+    const url = isSocial
+      ? `/api/social/playlists/${encodeURIComponent(nameOrId)}/tracks`
+      : `/api/playlists/${encodeURIComponent(nameOrId)}/tracks`;
+
+    return this.fetch<any>(url, {
+      method: 'POST',
+      body: JSON.stringify({
+        track_id: trackId,
+        title: meta?.title,
+        artist: meta?.artist,
+        cover_url: meta?.cover_url,
+      }),
+    });
   }
+
 
   async removeTrackFromPlaylist(
     name: string,
@@ -404,7 +416,9 @@ class WaveMashAPI {
   }
 
   async createPost(data: {
-    track_id: string;
+    track_id?: string;
+    playlist_id?: string;
+    image_url?: string;
     caption: string;
     tags?: string[];
   }): Promise<import('./types').Post> {
@@ -413,6 +427,8 @@ class WaveMashAPI {
       body: JSON.stringify(data),
     });
   }
+
+
 
   async deletePost(postId: string): Promise<void> {
     return this.fetch<void>(`/api/social/posts/${encodeURIComponent(postId)}`, {
