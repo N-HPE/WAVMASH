@@ -459,6 +459,55 @@ class WaveMashAPI {
     });
   }
 
+  /* ── Track Social Interactions & Friend Activity Feed ── */
+
+  async toggleTrackLike(
+    trackId: string,
+    meta?: { title?: string; artist?: string; cover_url?: string }
+  ): Promise<{ liked: boolean; likes_count: number }> {
+    return this.fetch<{ liked: boolean; likes_count: number }>(
+      `/api/social/tracks/${encodeURIComponent(trackId)}/like`,
+      {
+        method: 'POST',
+        body: JSON.stringify(meta || {}),
+      }
+    );
+  }
+
+  async recordTrackDownload(
+    trackId: string,
+    meta?: { title?: string; artist?: string; cover_url?: string }
+  ): Promise<{ message: string; success: boolean }> {
+    return this.fetch<{ message: string; success: boolean }>(
+      `/api/social/tracks/${encodeURIComponent(trackId)}/download-event`,
+      {
+        method: 'POST',
+        body: JSON.stringify(meta || {}),
+      }
+    );
+  }
+
+  async getTrackSocialStatus(
+    trackId: string
+  ): Promise<{ liked: boolean; likes_count: number; downloaded: boolean }> {
+    return this.fetch<{ liked: boolean; likes_count: number; downloaded: boolean }>(
+      `/api/social/tracks/${encodeURIComponent(trackId)}/status`
+    );
+  }
+
+  async getActivityFeed(): Promise<any[]> {
+    return this.fetch<any[]>('/api/social/feed');
+  }
+
+  async getUserLikedTracks(usernameOrId: string): Promise<any[]> {
+    return this.fetch<any[]>(`/api/social/users/${encodeURIComponent(usernameOrId)}/liked-tracks`);
+  }
+
+  async getUserDownloadedTracks(usernameOrId: string): Promise<any[]> {
+    return this.fetch<any[]>(`/api/social/users/${encodeURIComponent(usernameOrId)}/downloaded-tracks`);
+  }
+
+
   /* ── User YouTube Database Persistence ── */
 
   async syncUserYouTubePlaylists(

@@ -272,6 +272,18 @@ class UserYouTubePlaylistSync(BaseModel):
     itemCount: int = 0
     tracks: list[UserYouTubeTrackItem] = Field(default_factory=list)
 
+class TrackLikeActionReq(BaseModel):
+
+    title: str = "Unknown Title"
+    artist: str = "Unknown Artist"
+    cover_url: str = ""
+
+class TrackDownloadActionReq(BaseModel):
+    title: str = "Unknown Title"
+    artist: str = "Unknown Artist"
+    cover_url: str = ""
+
+
 
 
 

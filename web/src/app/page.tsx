@@ -24,8 +24,10 @@ import FeedStoryHighlights from '@/components/FeedStoryHighlights';
 import FeedPostCard from '@/components/FeedPostCard';
 import CreatePostModal from '@/components/CreatePostModal';
 import NowSpinningWidget from '@/components/NowSpinningWidget';
+import FriendActivityFeed from '@/components/FriendActivityFeed';
 import DownloadForm from '@/components/DownloadForm';
 import { Skeleton } from '@/components/ui/skeleton';
+
 
 export default function FeedDashboardPage() {
   const [posts, setPosts] = useState<Post[]>([]);
@@ -305,11 +307,15 @@ export default function FeedDashboardPage() {
 
         {/* ── RIGHT SIDEBAR (lg: col 8-12) ── */}
         <aside className="lg:col-span-5 xl:col-span-4 space-y-6">
-          {/* 1. Now Spinning Turntable Deck */}
+          {/* 1. Real-time Friend Activity Feed */}
+          <FriendActivityFeed />
+
+          {/* 2. Now Spinning Turntable Deck */}
           <NowSpinningWidget track={featuredTrack} collectorName="KYO" />
 
-          {/* 2. Quick Download & Archive Form */}
+          {/* 3. Quick Download & Archive Form */}
           <div className="glass rounded-2xl p-5 border border-white/10 space-y-3">
+
             <div className="flex items-center justify-between">
               <h3 className="text-xs font-bold uppercase tracking-wider text-white flex items-center gap-2">
                 <Music2 className="w-4 h-4 text-[#d4a853]" />

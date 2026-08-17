@@ -181,6 +181,29 @@ CREATE TABLE IF NOT EXISTS public.playlist_likes (
     PRIMARY KEY (user_id, playlist_name)
 );
 
+-- Track likes (WM 내부 곡 좋아요)
+CREATE TABLE IF NOT EXISTS public.track_likes (
+    user_id UUID NOT NULL REFERENCES public.profiles(user_id) ON DELETE CASCADE,
+    track_id TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (user_id, track_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_track_likes_user ON public.track_likes(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_track_likes_track ON public.track_likes(track_id);
+
+-- Track downloads / collections (WM을 통한 곡 다운로드 및 소장)
+CREATE TABLE IF NOT EXISTS public.track_downloads (
+    user_id UUID NOT NULL REFERENCES public.profiles(user_id) ON DELETE CASCADE,
+    track_id TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (user_id, track_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_track_downloads_user ON public.track_downloads(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_track_downloads_track ON public.track_downloads(track_id);
+
+
 
 -- ═══════════════════════════════════════════════════════════════════════════
 -- 5. Activity Feed
@@ -211,6 +234,27 @@ ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.friendships ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.activities ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.playlist_likes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.track_likes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.track_downloads ENABLE ROW LEVEL SECURITY;
+
+-- Track likes: public read, user toggle
+DROP POLICY IF EXISTS "Track likes are viewable by everyone" ON public.track_likes;
+CREATE POLICY "Track likes are viewable by everyone" ON public.track_likes
+    FOR SELECT USING (TRUE);
+
+DROP POLICY IF EXISTS "Users can toggle own track likes" ON public.track_likes;
+CREATE POLICY "Users can toggle own track likes" ON public.track_likes
+    FOR ALL USING (auth.uid() = user_id);
+
+-- Track downloads: public read, user manage
+DROP POLICY IF EXISTS "Track downloads are viewable by everyone" ON public.track_downloads;
+CREATE POLICY "Track downloads are viewable by everyone" ON public.track_downloads
+    FOR SELECT USING (TRUE);
+
+DROP POLICY IF EXISTS "Users can record own track downloads" ON public.track_downloads;
+CREATE POLICY "Users can record own track downloads" ON public.track_downloads
+    FOR ALL USING (auth.uid() = user_id);
+
 
 -- Friendships: involved users can see, sender can create
 -- Profiles: anyone can read public profiles, only owner can update

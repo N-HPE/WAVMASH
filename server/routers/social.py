@@ -13,8 +13,11 @@ from server.models import (
     MessageResponse,
     PostCommentCreate,
     PostCreate,
+    TrackDownloadActionReq,
+    TrackLikeActionReq,
     UserYouTubePlaylistSync,
 )
+
 from server.supabase_db import get_headers, is_supabase_enabled, _SUPABASE_URL
 
 
@@ -23,46 +26,206 @@ router = APIRouter(prefix="/social", tags=["Social"])
 
 
 # ---------------------------------------------------------------------------
-# 트랙 소장 (Collect / Uncollect)
+# 트랙 좋아요 & 다운로드 (Track Likes & Downloads)
 # ---------------------------------------------------------------------------
 
-@router.post("/collect/{track_id}", response_model=MessageResponse)
-async def collect_track(track_id: str, user_id: str = Depends(get_current_user)):
-    """트랙을 현재 사용자의 컬렉션에 추가합니다."""
+@router.post("/tracks/{track_id}/like")
+async def toggle_track_like(
+    track_id: str,
+    req: TrackLikeActionReq = None,
+    user_id: str = Depends(get_current_user),
+):
+    """WAVMASH 내부 트랙 좋아요 토글 및 친구 피드 공유."""
     if not is_supabase_enabled():
         raise HTTPException(status_code=500, detail="Supabase가 설정되지 않았습니다.")
 
-    url = f"{_SUPABASE_URL}/rest/v1/rpc/increment_collector_count"
     headers = get_headers()
-    
-    # RPC call
-    payload = {"p_track_id": track_id}
-    
-    resp = http_requests.post(url, headers=headers, json=payload, timeout=5)
-    resp.raise_for_status()
+    url = f"{_SUPABASE_URL}/rest/v1/track_likes"
 
-    # Activity 피드에 기록
-    _create_activity(user_id, "added_track", "track", track_id)
+    # 1. 이미 좋아요를 눌렀는지 확인
+    check_resp = http_requests.get(
+        url,
+        headers=headers,
+        params={"user_id": f"eq.{user_id}", "track_id": f"eq.{track_id}", "select": "track_id"},
+        timeout=5,
+    )
+    already_liked = bool(check_resp.ok and check_resp.json())
 
-    return MessageResponse(message="트랙이 컬렉션에 추가되었습니다.")
+    if already_liked:
+        # 좋아요 취소
+        http_requests.delete(
+            url,
+            headers=headers,
+            params={"user_id": f"eq.{user_id}", "track_id": f"eq.{track_id}"},
+            timeout=5,
+        )
+        liked = False
+    else:
+        # 좋아요 추가
+        payload = {"user_id": user_id, "track_id": track_id}
+        http_requests.post(url, headers=headers, json=payload, timeout=5)
+        liked = True
+
+        # 친구 피드에 'liked_track' 활동 기록
+        meta = {
+            "track_id": track_id,
+            "title": req.title if req else "Unknown Title",
+            "artist": req.artist if req else "Unknown Artist",
+            "cover_url": req.cover_url if req else "",
+        }
+        _create_activity(user_id, "liked_track", "track", track_id, meta)
+
+    # 2. 현재 트랙의 총 좋아요 수 조회
+    count_resp = http_requests.get(
+        url,
+        headers={**headers, "Prefer": "count=exact"},
+        params={"track_id": f"eq.{track_id}", "select": "track_id"},
+        timeout=5,
+    )
+    total_likes = int(count_resp.headers.get("content-range", "0/0").split("/")[-1]) if count_resp.ok else 0
+
+    return {"liked": liked, "likes_count": total_likes}
 
 
-@router.delete("/collect/{track_id}", response_model=MessageResponse)
-async def remove_collected_track(track_id: str, user_id: str = Depends(get_current_user)):
-    """트랙을 현재 사용자의 컬렉션에서 제거합니다."""
+@router.post("/tracks/{track_id}/download-event", response_model=MessageResponse)
+async def record_track_download(
+    track_id: str,
+    req: TrackDownloadActionReq = None,
+    user_id: str = Depends(get_current_user),
+):
+    """WAVMASH를 통한 트랙 다운로드/소장 기록 및 친구 활동 피드 전파."""
     if not is_supabase_enabled():
         raise HTTPException(status_code=500, detail="Supabase가 설정되지 않았습니다.")
 
-    url = f"{_SUPABASE_URL}/rest/v1/rpc/decrement_collector_count"
     headers = get_headers()
-    
-    # RPC call
-    payload = {"p_track_id": track_id}
+    headers["Prefer"] = "resolution=merge-duplicates"
 
-    resp = http_requests.post(url, headers=headers, json=payload, timeout=5)
-    resp.raise_for_status()
+    # 1. track_downloads 테이블에 기록
+    url = f"{_SUPABASE_URL}/rest/v1/track_downloads"
+    payload = {"user_id": user_id, "track_id": track_id}
+    http_requests.post(url, headers=headers, json=payload, timeout=5)
 
-    return MessageResponse(message="트랙이 컬렉션에서 제거되었습니다.")
+    # 2. Activity 피드에 'downloaded_track' 기록
+    meta = {
+        "track_id": track_id,
+        "title": req.title if req else "Unknown Title",
+        "artist": req.artist if req else "Unknown Artist",
+        "cover_url": req.cover_url if req else "",
+    }
+    _create_activity(user_id, "downloaded_track", "track", track_id, meta)
+
+    # 3. tracks 테이블의 collector_count 증가 RPC
+    try:
+        rpc_url = f"{_SUPABASE_URL}/rest/v1/rpc/increment_collector_count"
+        http_requests.post(rpc_url, headers=get_headers(), json={"p_track_id": track_id}, timeout=5)
+    except Exception:
+        pass
+
+    return MessageResponse(message="다운로드 활동이 기록되었습니다.")
+
+
+@router.get("/tracks/{track_id}/status")
+async def get_track_social_status(
+    track_id: str,
+    user_id: str | None = Depends(get_optional_user),
+):
+    """트랙의 좋아요 여부 및 총 좋아요/다운로드 수를 반환합니다."""
+    if not is_supabase_enabled():
+        return {"liked": False, "likes_count": 0, "downloaded": False}
+
+    headers = get_headers()
+
+    # 총 좋아요 수
+    likes_resp = http_requests.get(
+        f"{_SUPABASE_URL}/rest/v1/track_likes",
+        headers={**headers, "Prefer": "count=exact"},
+        params={"track_id": f"eq.{track_id}", "select": "track_id"},
+        timeout=5,
+    )
+    likes_count = int(likes_resp.headers.get("content-range", "0/0").split("/")[-1]) if likes_resp.ok else 0
+
+    liked = False
+    downloaded = False
+    if user_id:
+        # 내 좋아요 여부
+        user_like_resp = http_requests.get(
+            f"{_SUPABASE_URL}/rest/v1/track_likes",
+            headers=headers,
+            params={"user_id": f"eq.{user_id}", "track_id": f"eq.{track_id}", "select": "track_id"},
+            timeout=5,
+        )
+        liked = bool(user_like_resp.ok and user_like_resp.json())
+
+        # 내 다운로드 여부
+        user_dl_resp = http_requests.get(
+            f"{_SUPABASE_URL}/rest/v1/track_downloads",
+            headers=headers,
+            params={"user_id": f"eq.{user_id}", "track_id": f"eq.{track_id}", "select": "track_id"},
+            timeout=5,
+        )
+        downloaded = bool(user_dl_resp.ok and user_dl_resp.json())
+
+    return {"liked": liked, "likes_count": likes_count, "downloaded": downloaded}
+
+
+@router.get("/users/{target}/liked-tracks")
+async def get_user_liked_tracks(target: str):
+    """특정 사용자(username 또는 user_id)가 WM에서 좋아요를 누른 트랙 목록."""
+    if not is_supabase_enabled():
+        return []
+
+    headers = get_headers()
+    # UUID인지 username인지 판별
+    user_id = target
+    if "-" not in target or len(target) < 30:
+        prof_resp = http_requests.get(
+            f"{_SUPABASE_URL}/rest/v1/profiles",
+            headers=headers,
+            params={"username": f"eq.{target}", "select": "user_id"},
+            timeout=5,
+        )
+        if prof_resp.ok and prof_resp.json():
+            user_id = prof_resp.json()[0]["user_id"]
+        else:
+            return []
+
+    likes_resp = http_requests.get(
+        f"{_SUPABASE_URL}/rest/v1/track_likes",
+        headers=headers,
+        params={"user_id": f"eq.{user_id}", "order": "created_at.desc", "limit": "50", "select": "*"},
+        timeout=5,
+    )
+    return likes_resp.json() if likes_resp.ok else []
+
+
+@router.get("/users/{target}/downloaded-tracks")
+async def get_user_downloaded_tracks(target: str):
+    """특정 사용자(username 또는 user_id)가 WM을 통해 다운로드/소장한 트랙 목록."""
+    if not is_supabase_enabled():
+        return []
+
+    headers = get_headers()
+    user_id = target
+    if "-" not in target or len(target) < 30:
+        prof_resp = http_requests.get(
+            f"{_SUPABASE_URL}/rest/v1/profiles",
+            headers=headers,
+            params={"username": f"eq.{target}", "select": "user_id"},
+            timeout=5,
+        )
+        if prof_resp.ok and prof_resp.json():
+            user_id = prof_resp.json()[0]["user_id"]
+        else:
+            return []
+
+    dl_resp = http_requests.get(
+        f"{_SUPABASE_URL}/rest/v1/track_downloads",
+        headers=headers,
+        params={"user_id": f"eq.{user_id}", "order": "created_at.desc", "limit": "50", "select": "*"},
+        timeout=5,
+    )
+    return dl_resp.json() if dl_resp.ok else []
+
 
 
 # ---------------------------------------------------------------------------
@@ -97,18 +260,21 @@ async def get_activity_feed(user_id: str = Depends(get_current_user)):
             friend_ids.add(str(row.get("user_id", "")))
             friend_ids.add(str(row.get("friend_id", "")))
 
-    # 2. 친구들의 최근 활동 조회
+    # 2. 친구들의 최근 활동 조회 (친구가 적을 경우 전체 커뮤니티 활동 포함)
     act_url = f"{_SUPABASE_URL}/rest/v1/activities"
-    friend_filter = ",".join(friend_ids)
+    params = {
+        "order": "created_at.desc",
+        "limit": "50",
+        "select": "*,profiles:user_id(username,display_name,avatar_url)",
+    }
+    if len(friend_ids) > 1:
+        friend_filter = ",".join(friend_ids)
+        params["user_id"] = f"in.({friend_filter})"
+
     act_resp = http_requests.get(
         act_url,
         headers=headers,
-        params={
-            "user_id": f"in.({friend_filter})",
-            "order": "created_at.desc",
-            "limit": "50",
-            "select": "*,profiles:user_id(username,display_name,avatar_url)",
-        },
+        params=params,
         timeout=10,
     )
 
@@ -116,6 +282,7 @@ async def get_activity_feed(user_id: str = Depends(get_current_user)):
         return []
 
     return act_resp.json()
+
 
 
 # ---------------------------------------------------------------------------
