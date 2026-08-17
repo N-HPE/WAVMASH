@@ -31,30 +31,5 @@ services:
       - key: GETSONGBPM_API_KEY
         sync: false
       - key: CORS_ORIGINS
-        fromService:
-          type: web
-          name: wavmash-frontend
-          property: host
+        sync: false
 
-  # ── 2. WaveMash Next.js Frontend ──────────────────────────────────────────
-  - type: web
-    name: wavmash-frontend
-    runtime: docker
-    dockerfilePath: web/Dockerfile
-    dockerContext: web
-    plan: free
-    region: oregon
-    healthCheckPath: /
-    autoDeploy: true
-    envVars:
-      - key: NODE_ENV
-        value: production
-      - key: NEXT_PUBLIC_API_URL
-        fromService:
-          type: web
-          name: wavmash-backend
-          property: host
-      - key: NEXT_PUBLIC_SUPABASE_URL
-        sync: false
-      - key: NEXT_PUBLIC_SUPABASE_ANON_KEY
-        sync: false
