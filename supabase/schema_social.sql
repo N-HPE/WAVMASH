@@ -409,3 +409,63 @@ DROP POLICY IF EXISTS "Users can manage own highlights" ON public.highlights;
 CREATE POLICY "Users can manage own highlights" ON public.highlights
     FOR ALL USING (auth.uid() = user_id);
 
+-- ═══════════════════════════════════════════════════════════════════════════
+-- 9. Account-specific YouTube Playlists & Tracks Database Persistence
+-- ═══════════════════════════════════════════════════════════════════════════
+
+-- User YouTube Playlists
+CREATE TABLE IF NOT EXISTS public.user_youtube_playlists (
+    id TEXT NOT NULL,
+    user_id UUID NOT NULL REFERENCES public.profiles(user_id) ON DELETE CASCADE,
+    title TEXT NOT NULL,
+    description TEXT DEFAULT '',
+    thumbnail_url TEXT DEFAULT '',
+    item_count INTEGER DEFAULT 0,
+    is_public BOOLEAN DEFAULT TRUE,
+    last_synced_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (user_id, id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_yt_playlists_user ON public.user_youtube_playlists(user_id, last_synced_at DESC);
+
+-- User YouTube Tracks (Cleaned and Curated items per playlist)
+CREATE TABLE IF NOT EXISTS public.user_youtube_tracks (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES public.profiles(user_id) ON DELETE CASCADE,
+    playlist_id TEXT NOT NULL,
+    video_id TEXT NOT NULL,
+    raw_title TEXT NOT NULL,
+    artist TEXT NOT NULL DEFAULT 'Unknown Artist',
+    clean_title TEXT NOT NULL,
+    channel_title TEXT DEFAULT '',
+    thumbnail_url TEXT DEFAULT '',
+    duration TEXT DEFAULT '',
+    is_collected BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (user_id, playlist_id, video_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_yt_tracks_pl ON public.user_youtube_tracks(user_id, playlist_id, created_at ASC);
+
+-- RLS Policies for user YouTube database
+ALTER TABLE public.user_youtube_playlists ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.user_youtube_tracks ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Users can view own or public youtube playlists" ON public.user_youtube_playlists;
+CREATE POLICY "Users can view own or public youtube playlists" ON public.user_youtube_playlists
+    FOR SELECT USING (is_public = TRUE OR auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can manage own youtube playlists" ON public.user_youtube_playlists;
+CREATE POLICY "Users can manage own youtube playlists" ON public.user_youtube_playlists
+    FOR ALL USING (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can view own or public youtube tracks" ON public.user_youtube_tracks;
+CREATE POLICY "Users can view own or public youtube tracks" ON public.user_youtube_tracks
+    FOR SELECT USING (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can manage own youtube tracks" ON public.user_youtube_tracks;
+CREATE POLICY "Users can manage own youtube tracks" ON public.user_youtube_tracks
+    FOR ALL USING (auth.uid() = user_id);
+
+

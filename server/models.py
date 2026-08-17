@@ -255,6 +255,24 @@ class HighlightCreate(BaseModel):
     cover_url: str = ""
     track_ids: list[str] = Field(default_factory=list)
 
+class UserYouTubeTrackItem(BaseModel):
+    videoId: str
+    rawTitle: str
+    artist: str
+    cleanTitle: str
+    channelTitle: str = ""
+    thumbnailUrl: str = ""
+    duration: str = ""
+
+class UserYouTubePlaylistSync(BaseModel):
+    id: str
+    title: str
+    description: str = ""
+    thumbnailUrl: str = ""
+    itemCount: int = 0
+    tracks: list[UserYouTubeTrackItem] = Field(default_factory=list)
+
+
 
 
 # ---------------------------------------------------------------------------

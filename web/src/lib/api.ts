@@ -458,7 +458,44 @@ class WaveMashAPI {
       body: JSON.stringify(data),
     });
   }
+
+  /* ── User YouTube Database Persistence ── */
+
+  async syncUserYouTubePlaylists(
+    playlists: Array<{
+      id: string;
+      title: string;
+      description?: string;
+      thumbnailUrl?: string;
+      itemCount?: number;
+      tracks: Array<{
+        videoId: string;
+        rawTitle: string;
+        artist: string;
+        cleanTitle: string;
+        channelTitle?: string;
+        thumbnailUrl?: string;
+        duration?: string;
+      }>;
+    }>
+  ): Promise<{ message: string; success: boolean }> {
+    return this.fetch<{ message: string; success: boolean }>('/api/social/youtube/sync', {
+      method: 'POST',
+      body: JSON.stringify(playlists),
+    });
+  }
+
+  async getSavedYouTubePlaylists(userId?: string): Promise<any[]> {
+    const qs = userId ? `?user_id=${encodeURIComponent(userId)}` : '';
+    return this.fetch<any[]>(`/api/social/youtube/playlists${qs}`);
+  }
+
+  async getSavedYouTubePlaylistTracks(playlistId: string, userId?: string): Promise<any[]> {
+    const qs = userId ? `?user_id=${encodeURIComponent(userId)}` : '';
+    return this.fetch<any[]>(`/api/social/youtube/playlists/${encodeURIComponent(playlistId)}/tracks${qs}`);
+  }
 }
+
 
 export const api = new WaveMashAPI();
 export default api;

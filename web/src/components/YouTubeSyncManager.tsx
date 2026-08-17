@@ -1,8 +1,8 @@
 'use client';
 
 /* ──────────────────────────────────────────────
-   WaveMash — YouTube Playlist Sync & Curation Manager
-   유튜브 재생목록/좋아요 음악 실시간 연동, 스마트 정제, 스트리밍 및 WAV 소장
+   WaveMash — Account-level YouTube Sync & Database Manager
+   유튜브 재생목록/좋아요 음악 계정별 DB 영구 저장, 스마트 정제, 스트리밍 및 WAV 소장
    ────────────────────────────────────────────── */
 
 import React, { useState, useEffect } from 'react';
@@ -20,6 +20,9 @@ import {
   Sparkles,
   ArrowRight,
   ShieldCheck,
+  Database,
+  CloudCheck,
+  CheckCircle2,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePlayer } from '@/contexts/PlayerContext';
@@ -40,7 +43,6 @@ function YouTubeIcon({ className = 'w-5 h-5' }: { className?: string }) {
   );
 }
 
-
 export default function YouTubeSyncManager() {
   const { user, googleAccessToken, signInWithGoogle } = useAuth();
   const { currentTrack, isPlaying, play, togglePlay } = usePlayer();
@@ -49,17 +51,43 @@ export default function YouTubeSyncManager() {
   const [selectedPlaylist, setSelectedPlaylist] = useState<YouTubePlaylist | null>(null);
   const [playlistItems, setPlaylistItems] = useState<YouTubePlaylistItem[]>([]);
   const [loading, setLoading] = useState(false);
+  const [syncingDb, setSyncingDb] = useState(false);
+  const [dbSavedNotice, setDbSavedNotice] = useState(false);
   const [loadingItems, setLoadingItems] = useState(false);
   const [downloadingIds, setDownloadingIds] = useState<string[]>([]);
   const [downloadedIds, setDownloadedIds] = useState<string[]>([]);
 
-  // 1. Fetch YouTube Playlists
-  const loadPlaylists = async () => {
+  // 1. Initial Load: DB에서 계정별 저장된 플리 먼저 불러오기 (캐시/오프라인 지원)
+  const loadSavedFromDb = async () => {
+    if (!user) return;
+    try {
+      const saved = await api.getSavedYouTubePlaylists(user.id);
+      if (saved && saved.length > 0) {
+        const mapped: YouTubePlaylist[] = saved.map((s: any) => ({
+          id: s.id,
+          title: s.title,
+          description: s.description || '',
+          thumbnailUrl: s.thumbnail_url || '',
+          itemCount: s.item_count || 0,
+        }));
+        setPlaylists(mapped);
+      }
+    } catch (err) {
+      console.warn('Could not load saved YouTube playlists from DB:', err);
+    }
+  };
+
+  // 2. Fetch Live Playlists from YouTube API & Auto Sync to DB
+  const loadAndSyncPlaylists = async () => {
     if (!googleAccessToken) return;
     setLoading(true);
     try {
-      const data = await fetchMyYouTubePlaylists(googleAccessToken);
-      setPlaylists(data);
+      const livePlaylists = await fetchMyYouTubePlaylists(googleAccessToken);
+      if (livePlaylists && livePlaylists.length > 0) {
+        setPlaylists(livePlaylists);
+        // 백그라운드에서 DB로 영구 저장 (Sync to Supabase DB)
+        syncPlaylistsToDatabase(livePlaylists);
+      }
     } catch (err) {
       console.error(err);
     } finally {
@@ -67,25 +95,95 @@ export default function YouTubeSyncManager() {
     }
   };
 
-  useEffect(() => {
-    if (googleAccessToken) {
-      loadPlaylists();
-    }
-  }, [googleAccessToken]);
+  // 3. Sync Playlists & Top Items to Supabase Database
+  const syncPlaylistsToDatabase = async (targetPlaylists: YouTubePlaylist[]) => {
+    if (!user || !googleAccessToken) return;
+    setSyncingDb(true);
+    try {
+      const payload: any[] = [];
+      for (const pl of targetPlaylists.slice(0, 10)) {
+        let items: YouTubePlaylistItem[] = [];
+        try {
+          items = await fetchPlaylistItems(googleAccessToken, pl.id);
+        } catch {
+          items = [];
+        }
 
-  // 2. Select Playlist & Load Videos
+        payload.push({
+          id: pl.id,
+          title: pl.title,
+          description: pl.description || '',
+          thumbnailUrl: pl.thumbnailUrl || '',
+          itemCount: pl.itemCount || items.length,
+          tracks: items.map((t) => ({
+            videoId: t.videoId,
+            rawTitle: t.title,
+            artist: t.artist,
+            cleanTitle: t.cleanTitle,
+            channelTitle: t.channelTitle,
+            thumbnailUrl: t.thumbnailUrl,
+            duration: t.duration || '',
+          })),
+        });
+      }
+
+      if (payload.length > 0) {
+        await api.syncUserYouTubePlaylists(payload);
+        setDbSavedNotice(true);
+        setTimeout(() => setDbSavedNotice(false), 4000);
+      }
+    } catch (err) {
+      console.error('Failed to sync to database:', err);
+    } finally {
+      setSyncingDb(false);
+    }
+  };
+
+  useEffect(() => {
+    if (user) {
+      loadSavedFromDb();
+    }
+    if (googleAccessToken) {
+      loadAndSyncPlaylists();
+    }
+  }, [user, googleAccessToken]);
+
+  // 4. Select Playlist & Load Videos (DB First, then Live API)
   const handleSelectPlaylist = async (pl: YouTubePlaylist) => {
     setSelectedPlaylist(pl);
-    if (!googleAccessToken) return;
-
     setLoadingItems(true);
+
     try {
-      if (pl.id === 'liked-videos') {
-        const items = await fetchLikedVideos(googleAccessToken);
-        setPlaylistItems(items);
-      } else {
-        const items = await fetchPlaylistItems(googleAccessToken, pl.id);
-        setPlaylistItems(items);
+      // A. DB에 저장된 트랙이 있는지 먼저 확인
+      if (user && pl.id !== 'liked-videos') {
+        const savedTracks = await api.getSavedYouTubePlaylistTracks(pl.id, user.id);
+        if (savedTracks && savedTracks.length > 0) {
+          setPlaylistItems(
+            savedTracks.map((st: any) => ({
+              id: st.id,
+              videoId: st.video_id,
+              title: st.raw_title,
+              artist: st.artist,
+              cleanTitle: st.clean_title,
+              channelTitle: st.channel_title,
+              thumbnailUrl: st.thumbnail_url,
+              publishedAt: st.created_at,
+            }))
+          );
+          setLoadingItems(false);
+          return;
+        }
+      }
+
+      // B. DB에 없거나 실시간 조회가 필요할 때
+      if (googleAccessToken) {
+        if (pl.id === 'liked-videos') {
+          const items = await fetchLikedVideos(googleAccessToken);
+          setPlaylistItems(items);
+        } else {
+          const items = await fetchPlaylistItems(googleAccessToken, pl.id);
+          setPlaylistItems(items);
+        }
       }
     } catch (err) {
       console.error(err);
@@ -94,7 +192,7 @@ export default function YouTubeSyncManager() {
     }
   };
 
-  // 3. Play YouTube Item in unified player
+  // 5. Play YouTube Item in unified player
   const handlePlayItem = (item: YouTubePlaylistItem) => {
     const trackMock: any = {
       track_id: item.videoId,
@@ -123,7 +221,7 @@ export default function YouTubeSyncManager() {
     }
   };
 
-  // 4. Download / Collect Single Track as Lossless WAV
+  // 6. Download / Collect Single Track as Lossless WAV
   const handleDownloadTrack = async (item: YouTubePlaylistItem) => {
     const videoUrl = `https://www.youtube.com/watch?v=${item.videoId}`;
     setDownloadingIds((prev) => [...prev, item.videoId]);
@@ -138,8 +236,8 @@ export default function YouTubeSyncManager() {
     }
   };
 
-  // ── A. Not Logged in or No YouTube Scope ──
-  if (!user || !googleAccessToken) {
+  // ── A. Not Logged in or No YouTube Token ──
+  if (!user || (!googleAccessToken && playlists.length === 0)) {
     return (
       <div className="glass rounded-2xl p-8 border border-white/10 text-center max-w-2xl mx-auto space-y-6">
         <div className="w-16 h-16 rounded-full bg-red-500/10 border border-red-500/30 flex items-center justify-center mx-auto text-red-500 shadow-xl">
@@ -148,11 +246,12 @@ export default function YouTubeSyncManager() {
 
         <div className="space-y-2">
           <h3 className="text-xl font-bold text-white">
-            YouTube 재생목록 & 좋아요 음악 스마트 동기화
+            개인별 YouTube 재생목록 계정 DB 영구 연동
           </h3>
           <p className="text-xs text-muted-foreground max-w-md mx-auto leading-relaxed">
-            내 구글 계정으로 로그인하면 유튜브에 저장된 플레이리스트를 자동으로 불러와
-            BPM/Key/아티스트를 정제하고 고음질 WAV로 바로 소장할 수 있습니다.
+            Google 계정으로 로그인하면 내 유튜브에 저장된 플레이리스트들이
+            <strong>내 전용 클라우드 데이터베이스에 안전하게 구축 및 저장</strong>되어
+            언제든 즉각 로드되고 고음질 WAV로 소장할 수 있습니다.
           </p>
         </div>
 
@@ -168,17 +267,20 @@ export default function YouTubeSyncManager() {
 
         <div className="flex items-center justify-center gap-4 text-[11px] text-muted-foreground/80 pt-2 border-t border-white/5">
           <span className="flex items-center gap-1">
-            <ShieldCheck className="w-3.5 h-3.5 text-green-400" />
-            읽기 전용 안전 연동
+            <Database className="w-3.5 h-3.5 text-blue-400" />
+            계정별 독립 DB 구축
           </span>
           <span>•</span>
-          <span>원클릭 24bit 무손실 아카이빙</span>
+          <span className="flex items-center gap-1">
+            <ShieldCheck className="w-3.5 h-3.5 text-green-400" />
+            안전한 읽기 권한
+          </span>
         </div>
       </div>
     );
   }
 
-  // ── B. Logged in with YouTube Token ──
+  // ── B. Logged in with Synced YouTube Data ──
   return (
     <div className="space-y-6">
       {/* Top Header Controls */}
@@ -190,24 +292,35 @@ export default function YouTubeSyncManager() {
           <div>
             <h3 className="text-sm font-bold text-white flex items-center gap-2">
               내 YouTube 플레이리스트 ({playlists.length}개)
-              <span className="text-[10px] px-2 py-0.5 rounded-full bg-red-500/20 text-red-400 font-mono">
-                CONNECTED
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-green-500/20 text-green-400 font-mono flex items-center gap-1">
+                <Database className="w-2.5 h-2.5" />
+                DB SYNCED
               </span>
             </h3>
             <p className="text-xs text-muted-foreground">
-              재생목록을 선택하여 트랙을 감상하고, 마음에 드는 곡을 WAV로 소장하세요.
+              계정별 데이터베이스에 안전하게 보관되어 빠른 스트리밍 및 소장이 가능합니다.
             </p>
           </div>
         </div>
 
         <div className="flex items-center gap-2">
+          {syncingDb && (
+            <span className="text-[11px] text-[#d4a853] flex items-center gap-1 animate-pulse">
+              <RefreshCw className="w-3 h-3 animate-spin" /> DB 동기화 중...
+            </span>
+          )}
+          {dbSavedNotice && (
+            <span className="text-[11px] text-green-400 flex items-center gap-1">
+              <CheckCircle2 className="w-3 h-3" /> DB 저장 완료!
+            </span>
+          )}
           <button
-            onClick={loadPlaylists}
-            disabled={loading}
+            onClick={loadAndSyncPlaylists}
+            disabled={loading || syncingDb}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-white text-xs font-semibold border border-white/10 transition-colors disabled:opacity-50"
           >
-            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-            새로고침
+            <RefreshCw className={`w-3.5 h-3.5 ${loading || syncingDb ? 'animate-spin' : ''}`} />
+            동기화 갱신
           </button>
         </div>
       </div>
@@ -261,7 +374,6 @@ export default function YouTubeSyncManager() {
                     <Folder className="w-8 h-8 text-white/30" />
                   </div>
                 )}
-
                 <span className="absolute bottom-1 right-1 px-1.5 py-0.5 rounded bg-black/70 text-[9px] font-mono text-white">
                   {pl.itemCount}곡
                 </span>
@@ -289,7 +401,7 @@ export default function YouTubeSyncManager() {
                 {selectedPlaylist.title}
               </h4>
               <p className="text-xs text-muted-foreground">
-                총 {playlistItems.length}개의 음악 트랙이 분석 및 정제되었습니다.
+                총 {playlistItems.length}개의 음악 트랙이 DB에 정제 및 보관되어 있습니다.
               </p>
             </div>
           </div>
@@ -305,14 +417,14 @@ export default function YouTubeSyncManager() {
             </div>
           ) : (
             <div className="space-y-2 max-h-[500px] overflow-y-auto pr-1 scrollbar-thin">
-              {playlistItems.map((item, idx) => {
+              {playlistItems.map((item) => {
                 const isPlayingThis = isPlaying && currentTrack?.track_id === item.videoId;
                 const isDownloading = downloadingIds.includes(item.videoId);
                 const isDownloaded = downloadedIds.includes(item.videoId);
 
                 return (
                   <div
-                    key={item.id}
+                    key={item.id || item.videoId}
                     className={`flex items-center justify-between p-3 rounded-xl border transition-all ${
                       isPlayingThis
                         ? 'bg-[#d4a853]/15 border-[#d4a853]/40'
@@ -342,7 +454,10 @@ export default function YouTubeSyncManager() {
                       {/* Cleaned Track Info */}
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
-                          <h5 className="text-xs font-bold text-white truncate hover:text-[#d4a853] cursor-pointer" onClick={() => handlePlayItem(item)}>
+                          <h5
+                            className="text-xs font-bold text-white truncate hover:text-[#d4a853] cursor-pointer"
+                            onClick={() => handlePlayItem(item)}
+                          >
                             {item.cleanTitle}
                           </h5>
                           {isPlayingThis && (

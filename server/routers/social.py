@@ -13,8 +13,10 @@ from server.models import (
     MessageResponse,
     PostCommentCreate,
     PostCreate,
+    UserYouTubePlaylistSync,
 )
 from server.supabase_db import get_headers, is_supabase_enabled, _SUPABASE_URL
+
 
 
 router = APIRouter(prefix="/social", tags=["Social"])
@@ -610,4 +612,136 @@ async def create_highlight(
         raise HTTPException(status_code=resp.status_code, detail="하이라이트 생성 실패")
 
     return resp.json()[0] if resp.json() else payload
+
+
+# ---------------------------------------------------------------------------
+# 계정별 YouTube 플레이리스트 & 트랙 영구 DB 동기화
+# ---------------------------------------------------------------------------
+
+@router.post("/youtube/sync", response_model=MessageResponse)
+async def sync_user_youtube_playlists(
+    playlists_sync: list[UserYouTubePlaylistSync],
+    user_id: str = Depends(get_current_user),
+):
+    """유저의 YouTube 플레이리스트 및 트랙 목록을 Supabase DB에 일괄 저장/갱신합니다."""
+    if not is_supabase_enabled():
+        raise HTTPException(status_code=500, detail="Supabase가 설정되지 않았습니다.")
+
+    headers = get_headers()
+    headers["Prefer"] = "resolution=merge-duplicates"
+
+    # 1. Playlists 일괄 Upsert
+    playlists_payload = [
+        {
+            "id": pl.id,
+            "user_id": user_id,
+            "title": pl.title,
+            "description": pl.description,
+            "thumbnail_url": pl.thumbnailUrl,
+            "item_count": pl.itemCount,
+            "last_synced_at": "now()",
+        }
+        for pl in playlists_sync
+    ]
+
+    if playlists_payload:
+        http_requests.post(
+            f"{_SUPABASE_URL}/rest/v1/user_youtube_playlists",
+            headers=headers,
+            json=playlists_payload,
+            timeout=10,
+        )
+
+    # 2. Tracks 일괄 Upsert
+    tracks_payload = []
+    for pl in playlists_sync:
+        for t in pl.tracks:
+            tracks_payload.append(
+                {
+                    "user_id": user_id,
+                    "playlist_id": pl.id,
+                    "video_id": t.videoId,
+                    "raw_title": t.rawTitle,
+                    "artist": t.artist,
+                    "clean_title": t.cleanTitle,
+                    "channel_title": t.channelTitle,
+                    "thumbnail_url": t.thumbnailUrl,
+                    "duration": t.duration,
+                }
+            )
+
+    if tracks_payload:
+        # 50개씩 청크 분할 전송
+        chunk_size = 50
+        for i in range(0, len(tracks_payload), chunk_size):
+            chunk = tracks_payload[i : i + chunk_size]
+            http_requests.post(
+                f"{_SUPABASE_URL}/rest/v1/user_youtube_tracks",
+                headers=headers,
+                json=chunk,
+                timeout=10,
+            )
+
+    return MessageResponse(message="YouTube 플레이리스트가 계정 DB에 성공적으로 동기화되었습니다.")
+
+
+@router.get("/youtube/playlists")
+async def get_user_youtube_playlists(
+    user_id: str | None = None,
+    current_user_id: str = Depends(get_current_user),
+):
+    """현재 계정 또는 특정 사용자의 DB에 저장된 YouTube 플레이리스트를 조회합니다."""
+    if not is_supabase_enabled():
+        return []
+
+    target_user_id = user_id or current_user_id
+    headers = get_headers()
+    params = {
+        "user_id": f"eq.{target_user_id}",
+        "order": "last_synced_at.desc",
+        "select": "*",
+    }
+
+    resp = http_requests.get(
+        f"{_SUPABASE_URL}/rest/v1/user_youtube_playlists",
+        headers=headers,
+        params=params,
+        timeout=10,
+    )
+    if not resp.ok:
+        return []
+
+    return resp.json()
+
+
+@router.get("/youtube/playlists/{playlist_id}/tracks")
+async def get_user_youtube_playlist_tracks(
+    playlist_id: str,
+    user_id: str | None = None,
+    current_user_id: str = Depends(get_current_user),
+):
+    """특정 YouTube 플레이리스트에 속한 트랙 목록을 DB에서 조회합니다."""
+    if not is_supabase_enabled():
+        return []
+
+    target_user_id = user_id or current_user_id
+    headers = get_headers()
+    params = {
+        "user_id": f"eq.{target_user_id}",
+        "playlist_id": f"eq.{playlist_id}",
+        "order": "created_at.asc",
+        "select": "*",
+    }
+
+    resp = http_requests.get(
+        f"{_SUPABASE_URL}/rest/v1/user_youtube_tracks",
+        headers=headers,
+        params=params,
+        timeout=10,
+    )
+    if not resp.ok:
+        return []
+
+    return resp.json()
+
 
