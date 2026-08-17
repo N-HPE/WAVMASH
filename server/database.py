@@ -35,7 +35,7 @@ from desktop_app.archive_store import (
 # ---------------------------------------------------------------------------
 
 class ArchiveCache:
-    """archive.json 레코드의 인-메모리 캐시 (락 기반 동시성 보호)."""
+    """archive.json 레코드의 인-메모리 캐시 (락 기반 동시성 보호 + Supabase 연동)."""
 
     def __init__(self) -> None:
         self._lock = threading.RLock()
@@ -43,10 +43,24 @@ class ArchiveCache:
         self._loaded = False
 
     def load(self, *, force: bool = False) -> list[dict[str, Any]]:
-        """아카이브를 로드합니다. force=True이면 디스크에서 새로 로드합니다."""
+        """아카이브를 로드합니다. force=True이면 디스크/Supabase에서 새로 로드합니다."""
+        from server.supabase_db import is_supabase_enabled, fetch_tracks_from_supabase
+
         with self._lock:
             if not self._loaded or force:
-                self._records = load_archive()
+                records: list[dict[str, Any]] = []
+                if is_supabase_enabled():
+                    try:
+                        sb_records, _ = fetch_tracks_from_supabase(limit=5000)
+                        if sb_records:
+                            records = sb_records
+                    except Exception:
+                        pass
+                
+                if not records:
+                    records = load_archive()
+
+                self._records = records
                 self._loaded = True
             return list(self._records)
 
@@ -67,16 +81,31 @@ class ArchiveCache:
         return None
 
     def upsert(self, record: dict[str, Any], *, prepend: bool = True) -> list[dict[str, Any]]:
-        """레코드를 추가/갱신하고 디스크에 저장합니다."""
+        """레코드를 추가/갱신하고 디스크 및 Supabase에 저장합니다."""
+        from server.supabase_db import is_supabase_enabled, upsert_track_to_supabase
+
         with self._lock:
             self._records = upsert_record(self._records, record, prepend=prepend)
+            save_archive(self._records)
+            if is_supabase_enabled():
+                try:
+                    upsert_track_to_supabase(record)
+                except Exception:
+                    pass
             return list(self._records)
 
     def delete(self, track_id: str) -> list[dict[str, Any]]:
-        """레코드를 삭제하고 디스크에 저장합니다."""
+        """레코드를 삭제하고 디스크 및 Supabase에서 제거합니다."""
+        from server.supabase_db import is_supabase_enabled, delete_track_from_supabase
+
         with self._lock:
             self._records = delete_record(self._records, track_id)
             save_archive(self._records)
+            if is_supabase_enabled():
+                try:
+                    delete_track_from_supabase(track_id)
+                except Exception:
+                    pass
             return list(self._records)
 
     def save(self) -> None:
@@ -85,7 +114,7 @@ class ArchiveCache:
             save_archive(self._records)
 
     def reload(self) -> list[dict[str, Any]]:
-        """디스크에서 강제로 다시 로드합니다."""
+        """디스크 및 Supabase에서 강제로 다시 로드합니다."""
         return self.load(force=True)
 
 
@@ -98,8 +127,17 @@ def _playlists_path() -> str:
 
 
 def load_playlists() -> dict[str, Any]:
-    """playlists.json을 읽어 ``{playlists, activity, meta}`` 형태로 반환합니다."""
+    """playlists.json 또는 Supabase를 읽어 ``{playlists, activity, meta}`` 형태로 반환합니다."""
     from server.vibe_palette import ensure_playlist_meta
+    from server.supabase_db import is_supabase_enabled, fetch_playlists_from_supabase
+
+    if is_supabase_enabled():
+        try:
+            sb_data = fetch_playlists_from_supabase()
+            if sb_data.get("playlists"):
+                return ensure_playlist_meta(sb_data)
+        except Exception:
+            pass
 
     path = _playlists_path()
     if not os.path.isfile(path):
@@ -120,13 +158,26 @@ def load_playlists() -> dict[str, Any]:
 
 
 def save_playlists(data: dict[str, Any]) -> None:
-    """playlists.json에 저장합니다."""
+    """playlists.json 및 Supabase에 저장합니다."""
     from server.vibe_palette import ensure_playlist_meta
+    from server.supabase_db import is_supabase_enabled, upsert_playlist_to_supabase
 
     path = _playlists_path()
     ensure_playlist_meta(data)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=4, ensure_ascii=False)
+
+    if is_supabase_enabled():
+        playlists = data.get("playlists", {}) or {}
+        meta_dict = data.get("meta", {}) or {}
+        activity_dict = data.get("activity", {}) or {}
+        for name, t_ids in playlists.items():
+            m = meta_dict.get(name, {}) or {}
+            act = activity_dict.get(name)
+            try:
+                upsert_playlist_to_supabase(name, t_ids, m, act)
+            except Exception:
+                pass
 
 
 # ---------------------------------------------------------------------------

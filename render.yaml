@@ -1,0 +1,58 @@
+# ============================================================================
+# WaveMash Render Blueprint (Infrastructure as Code)
+# Shares Render account with PIXMASH while keeping all services isolated.
+# ============================================================================
+services:
+  # ── 1. WaveMash FastAPI Backend ───────────────────────────────────────────
+  - type: web
+    name: wavmash-backend
+    runtime: docker
+    dockerfilePath: docker/Dockerfile.backend
+    dockerContext: .
+    plan: starter # or free
+    region: oregon # or singapore / frankfurt
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      - key: WAVMASH_HOST
+        value: "0.0.0.0"
+      - key: SUPABASE_URL
+        sync: false
+        # Enter your Supabase Project URL (e.g. https://xyz.supabase.co)
+      - key: SUPABASE_KEY
+        sync: false
+        # Enter your Supabase Anon Key or Service Role Key
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: SPOTIFY_CLIENT_ID
+        sync: false
+      - key: SPOTIFY_CLIENT_SECRET
+        sync: false
+      - key: GETSONGBPM_API_KEY
+        sync: false
+      - key: CORS_ORIGINS
+        fromService:
+          type: web
+          name: wavmash-frontend
+          property: host
+
+  # ── 2. WaveMash Next.js Frontend ──────────────────────────────────────────
+  - type: web
+    name: wavmash-frontend
+    runtime: docker
+    dockerfilePath: Dockerfile
+    dockerContext: web
+    plan: starter # or free
+    region: oregon
+    healthCheckPath: /
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NEXT_PUBLIC_API_URL
+        fromService:
+          type: web
+          name: wavmash-backend
+          property: host
