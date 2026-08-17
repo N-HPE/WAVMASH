@@ -18,9 +18,9 @@ WORKDIR /app
 COPY server/requirements.txt /app/server/requirements.txt
 COPY requirements.txt /app/requirements.txt
 
-# Install backend Python requirements
-RUN pip install --no-cache-dir -r /app/server/requirements.txt && \
-    pip install --no-cache-dir requests mutagen soundfile pydantic pydantic-settings
+# Install backend Python requirements (with retries for PyPI network issues)
+RUN pip install --no-cache-dir --retries 10 --default-timeout 100 -r /app/server/requirements.txt && \
+    pip install --no-cache-dir --retries 10 --default-timeout 100 requests mutagen soundfile pydantic pydantic-settings
 
 # Copy codebase
 COPY . /app
