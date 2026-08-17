@@ -240,12 +240,14 @@ class ChartEntry(BaseModel):
     thumbnail_url: str | None = None
 
 class PostCreate(BaseModel):
-    """인스타 피드 포스트 생성 (사진 + 음악/플리 매칭)."""
+    """인스타 피드 포스트 생성 (사진 + 음악/플리 매칭 다이어리)."""
     track_id: str | None = None
     playlist_id: str | None = None
     image_url: str | None = None
     caption: str = ""
     tags: list[str] = Field(default_factory=list)
+    visibility: str = "public"  # 'public' | 'private' | 'friends'
+
 
 class PlaylistTrackAdd(BaseModel):
     """플레이리스트에 트랙 추가 요청."""

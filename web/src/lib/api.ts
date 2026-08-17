@@ -421,12 +421,14 @@ class WaveMashAPI {
     image_url?: string;
     caption: string;
     tags?: string[];
+    visibility?: 'public' | 'private' | 'friends';
   }): Promise<import('./types').Post> {
     return this.fetch<import('./types').Post>('/api/social/posts', {
       method: 'POST',
       body: JSON.stringify(data),
     });
   }
+
 
 
 

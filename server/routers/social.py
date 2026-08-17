@@ -494,6 +494,9 @@ async def list_posts(
 
     if user_id:
         params["user_id"] = f"eq.{user_id}"
+        # 본인이 아니면 private 제외
+        if not current_user_id or current_user_id != user_id:
+            params["visibility"] = "neq.private"
     elif username:
         # username으로 profile 조회 후 user_id 필터링
         prof_res = http_requests.get(
@@ -505,8 +508,13 @@ async def list_posts(
         if prof_res.ok and prof_res.json():
             target_uid = prof_res.json()[0].get("user_id")
             params["user_id"] = f"eq.{target_uid}"
+            if not current_user_id or current_user_id != target_uid:
+                params["visibility"] = "neq.private"
         else:
             return []
+    else:
+        # 메인 피드는 무조건 공개 포스트만 노출
+        params["visibility"] = "neq.private"
 
     if tag:
         params["tags"] = f"cs.{{{tag}}}"
@@ -554,7 +562,7 @@ async def create_post(
     req: PostCreate,
     user_id: str = Depends(get_current_user),
 ):
-    """사진 및 음악/플리를 매칭한 감성 피드 포스트를 작성합니다."""
+    """사진 및 음악/플리를 매칭한 감성 피드 & 다이어리 포스트를 작성합니다."""
     if not is_supabase_enabled():
         raise HTTPException(status_code=500, detail="Supabase가 설정되지 않았습니다.")
 
@@ -569,6 +577,7 @@ async def create_post(
         "image_url": req.image_url or "",
         "caption": req.caption,
         "tags": req.tags,
+        "visibility": req.visibility or "public",
     }
 
     resp = http_requests.post(url, headers=headers, json=payload, timeout=10)
@@ -577,14 +586,16 @@ async def create_post(
 
     post = resp.json()[0] if resp.json() else payload
 
-    # 활동 피드 기록
-    _create_activity(
-        user_id,
-        "created_post",
-        "post",
-        str(post.get("id", "")),
-        {"track_id": req.track_id, "image_url": req.image_url, "caption": req.caption[:50]},
-    )
+    # 활동 피드 기록 (공개 포스트일 때만 친구 피드에 알림)
+    if (req.visibility or "public") == "public":
+        _create_activity(
+            user_id,
+            "created_post",
+            "post",
+            str(post.get("id", "")),
+            {"track_id": req.track_id, "image_url": req.image_url, "caption": req.caption[:50]},
+        )
+
 
     return post
 

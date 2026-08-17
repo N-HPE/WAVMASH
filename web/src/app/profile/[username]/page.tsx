@@ -1,8 +1,8 @@
 'use client';
 
 /* ──────────────────────────────────────────────
-   WaveMash — Instagram-Style Collector Showcase Profile
-   인스타 감성의 3x3 앨범 자켓 그리드, 소장/다운로드 곡 및 좋아요한 곡 탐색
+   WaveMash — Private Music Diary & Visual Album Showcase Profile
+   나만의 감성 사진 + 음악 다이어리 & 바이닐 앨범 쇼룸
    ────────────────────────────────────────────── */
 
 import React, { useEffect, useState } from 'react';
@@ -22,19 +22,26 @@ import {
   Pause,
   Download,
   Music,
+  Lock,
+  Globe,
+  BookOpen,
+  Image as ImageIcon,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { usePlayer } from '@/contexts/PlayerContext';
+import { useAuth } from '@/contexts/AuthContext';
 import type { UserProfile, Track, Post, HighlightItem } from '@/lib/types';
 import FeedPostCard from '@/components/FeedPostCard';
 import NowSpinningWidget from '@/components/NowSpinningWidget';
 import FeedStoryHighlights from '@/components/FeedStoryHighlights';
 import ShareVinylCardModal from '@/components/ShareVinylCardModal';
+import CreatePostModal from '@/components/CreatePostModal';
 import { Skeleton } from '@/components/ui/skeleton';
 
 export default function InstagramProfilePage() {
   const params = useParams();
   const username = params.username as string;
+  const { user: currentUser } = useAuth();
   const { currentTrack, isPlaying, play, togglePlay } = usePlayer();
 
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -45,8 +52,11 @@ export default function InstagramProfilePage() {
   const [highlights, setHighlights] = useState<HighlightItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [viewTab, setViewTab] = useState<'grid' | 'likes' | 'posts' | 'saved'>('grid');
+  const [viewTab, setViewTab] = useState<'diary' | 'grid' | 'likes'>('diary');
   const [shareTrack, setShareTrack] = useState<Track | null>(null);
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
+
+  const isMyProfile = Boolean(currentUser && (currentUser.email?.includes(username) || profile?.username === username));
 
   useEffect(() => {
     async function loadProfileData() {
@@ -68,7 +78,7 @@ export default function InstagramProfilePage() {
             user_id: 'user-1',
             username: username,
             display_name: username.toUpperCase(),
-            bio: 'Vinyl digger • Lossless audio lover • Electronic / House / WAV Archivist',
+            bio: '나만의 감성 사진과 좋아하는 음악을 기록하는 프라이빗 아카이브',
             avatar_url: '',
             track_count: 28,
             friend_count: 54,
@@ -136,6 +146,19 @@ export default function InstagramProfilePage() {
     play(mockTrack);
   };
 
+  const handlePostCreated = (newPost: Post) => {
+    setPosts((prev) => [newPost, ...prev]);
+  };
+
+  const handleDeletePost = async (postId: string) => {
+    try {
+      await api.deletePost(postId);
+      setPosts((prev) => prev.filter((p) => p.id !== postId));
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
   if (loading) {
     return (
       <div className="max-w-4xl mx-auto px-4 py-8 space-y-8">
@@ -190,7 +213,7 @@ export default function InstagramProfilePage() {
                 <h1 className="text-xl sm:text-2xl font-black text-white flex items-center justify-center sm:justify-start gap-2">
                   {profile?.display_name || profile?.username}
                   <span className="text-xs font-mono font-normal px-2 py-0.5 rounded-full bg-[#d4a853]/15 text-[#d4a853] border border-[#d4a853]/30">
-                    DIGGER
+                    DIARY ARCHIVE
                   </span>
                 </h1>
                 <p className="text-xs font-mono text-muted-foreground mt-0.5">
@@ -200,8 +223,12 @@ export default function InstagramProfilePage() {
 
               {/* Action Buttons */}
               <div className="flex items-center justify-center gap-2">
-                <button className="px-4 py-1.5 rounded-xl bg-white/10 hover:bg-white/15 text-white font-semibold text-xs transition-colors border border-white/10">
-                  친구 추가
+                <button
+                  onClick={() => setIsCreateOpen(true)}
+                  className="px-4 py-1.5 rounded-xl bg-[#d4a853] hover:bg-amber-400 text-black font-bold text-xs transition-colors flex items-center gap-1.5 shadow-lg shadow-[#d4a853]/20 cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  기록 추가
                 </button>
                 <button className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-white/70 hover:text-white transition-colors border border-white/10">
                   <Settings className="w-4 h-4" />
@@ -209,13 +236,19 @@ export default function InstagramProfilePage() {
               </div>
             </div>
 
-            {/* Numbers Strip (Tracks, Likes, Friends) */}
+            {/* Numbers Strip (Diary Records, Tracks, Likes) */}
             <div className="flex items-center justify-center sm:justify-start gap-6 text-xs py-1">
+              <div>
+                <strong className="text-[#d4a853] font-bold text-sm block">
+                  {posts.length}
+                </strong>
+                <span className="text-muted-foreground text-[11px]">음악 다이어리</span>
+              </div>
               <div>
                 <strong className="text-white font-bold text-sm block">
                   {tracks.length}
                 </strong>
-                <span className="text-muted-foreground text-[11px]">소장 트랙</span>
+                <span className="text-muted-foreground text-[11px]">소장 바이닐</span>
               </div>
               <div>
                 <strong className="text-red-400 font-bold text-sm block">
@@ -223,16 +256,10 @@ export default function InstagramProfilePage() {
                 </strong>
                 <span className="text-muted-foreground text-[11px]">좋아요</span>
               </div>
-              <div>
-                <strong className="text-white font-bold text-sm block">
-                  {profile?.friend_count || 12}
-                </strong>
-                <span className="text-muted-foreground text-[11px]">디거 친구</span>
-              </div>
             </div>
 
             <p className="text-xs text-white/80 leading-relaxed max-w-lg">
-              {profile?.bio || 'WAVMASH에서 좋아하는 음악을 소장하고 공유하는 디거입니다.'}
+              {profile?.bio || '사진과 음악을 조합하여 나만의 감성 다이어리와 앨범을 만들어가는 공간입니다.'}
             </p>
           </div>
         </div>
@@ -254,6 +281,18 @@ export default function InstagramProfilePage() {
       <div className="border-t border-white/10">
         <div className="flex items-center justify-center gap-6 sm:gap-12 text-xs font-bold uppercase tracking-wider">
           <button
+            onClick={() => setViewTab('diary')}
+            className={`flex items-center gap-1.5 py-3.5 border-t-2 -mt-[1px] transition-all cursor-pointer ${
+              viewTab === 'diary'
+                ? 'border-[#d4a853] text-[#d4a853]'
+                : 'border-transparent text-muted-foreground hover:text-white'
+            }`}
+          >
+            <BookOpen className="w-4 h-4" />
+            뮤직 다이어리 & 앨범 ({posts.length})
+          </button>
+
+          <button
             onClick={() => setViewTab('grid')}
             className={`flex items-center gap-1.5 py-3.5 border-t-2 -mt-[1px] transition-all cursor-pointer ${
               viewTab === 'grid'
@@ -274,26 +313,42 @@ export default function InstagramProfilePage() {
             }`}
           >
             <Heart className="w-4 h-4" />
-            좋아요 누른 곡 ({likedTracks.length})
-          </button>
-
-          <button
-            onClick={() => setViewTab('posts')}
-            className={`flex items-center gap-1.5 py-3.5 border-t-2 -mt-[1px] transition-all cursor-pointer ${
-              viewTab === 'posts'
-                ? 'border-[#d4a853] text-[#d4a853]'
-                : 'border-transparent text-muted-foreground hover:text-white'
-            }`}
-          >
-            <List className="w-4 h-4" />
-            피드 포스트 ({posts.length})
+            좋아요 ({likedTracks.length})
           </button>
         </div>
 
         {/* ── 5. Tab Content ── */}
         <div className="mt-4">
-          {viewTab === 'grid' ? (
-            /* 3x3 Album Artwork Grid */
+          {viewTab === 'diary' ? (
+            /* Music Diary Posts List */
+            posts.length > 0 ? (
+              <div className="space-y-6 max-w-xl mx-auto">
+                {posts.map((post) => (
+                  <FeedPostCard
+                    key={post.id}
+                    post={post}
+                    currentUserId={currentUser?.id}
+                    onDelete={handleDeletePost}
+                  />
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-16 text-muted-foreground text-xs glass rounded-2xl space-y-3 max-w-xl mx-auto">
+                <BookOpen className="w-10 h-10 text-[#d4a853]/60 mx-auto" />
+                <h4 className="text-white font-bold text-sm">아직 기록된 음악 다이어리가 없습니다</h4>
+                <p className="text-[11px] text-muted-foreground">
+                  어울리는 사진과 음악을 골라 나만의 첫 번째 뮤직 다이어리를 남겨보세요.
+                </p>
+                <button
+                  onClick={() => setIsCreateOpen(true)}
+                  className="px-4 py-2 rounded-xl bg-[#d4a853] text-black font-semibold text-xs inline-flex items-center gap-1.5"
+                >
+                  <Plus className="w-3.5 h-3.5" /> 다이어리 작성하기
+                </button>
+              </div>
+            )
+          ) : viewTab === 'grid' ? (
+            /* 3x3 Vinyl Album Art Grid */
             tracks.length > 0 ? (
               <div className="grid grid-cols-3 gap-1 sm:gap-3">
                 {tracks.map((t) => (
@@ -340,7 +395,7 @@ export default function InstagramProfilePage() {
                 소장된 트랙이 없습니다.
               </div>
             )
-          ) : viewTab === 'likes' ? (
+          ) : (
             /* Liked Tracks List */
             likedTracks.length > 0 ? (
               <div className="space-y-2 max-w-2xl mx-auto">
@@ -409,23 +464,6 @@ export default function InstagramProfilePage() {
                 아직 좋아요를 누른 트랙이 없습니다.
               </div>
             )
-          ) : viewTab === 'posts' ? (
-            /* Feed Posts List */
-            posts.length > 0 ? (
-              <div className="space-y-6 max-w-xl mx-auto">
-                {posts.map((post) => (
-                  <FeedPostCard key={post.id} post={post} />
-                ))}
-              </div>
-            ) : (
-              <div className="text-center py-16 text-muted-foreground text-xs glass rounded-xl">
-                작성된 피드 포스트가 없습니다.
-              </div>
-            )
-          ) : (
-            <div className="text-center py-16 text-muted-foreground text-xs glass rounded-xl">
-              보관된 항목이 없습니다.
-            </div>
           )}
         </div>
       </div>
@@ -439,6 +477,13 @@ export default function InstagramProfilePage() {
           user={profile}
         />
       )}
+
+      {/* Create Diary / Album Modal */}
+      <CreatePostModal
+        isOpen={isCreateOpen}
+        onClose={() => setIsCreateOpen(false)}
+        onPostCreated={handlePostCreated}
+      />
     </div>
   );
 }

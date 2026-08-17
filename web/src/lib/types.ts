@@ -221,6 +221,7 @@ export interface Post {
   image_url?: string;
   caption: string;
   tags: string[];
+  visibility?: 'public' | 'private' | 'friends';
   likes_count: number;
   comments_count: number;
   shares_count?: number;
@@ -230,6 +231,7 @@ export interface Post {
   track?: Track;
   is_liked?: boolean;
 }
+
 
 
 

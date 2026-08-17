@@ -1,8 +1,11 @@
 'use client';
 
 /* ──────────────────────────────────────────────
-   WaveMash — Create Music & Photo Post Modal
-   인스타 감성: 감성 사진 업로드 + 어울리는 음악(유튜브/트랙) 매칭 + Digger's Note 포스팅
+   WaveMash — Create Music Diary & Photo Album Modal
+   나만의 음악 다이어리 & 뮤직플레잉 앨범 생성 모달
+   - 프라이버시(🔒 나만 보기 / 🌐 전체 공개) 선택
+   - 브라우저 초경량 이미지 압축 (150KB 이하)
+   - 사진 + 어울리는 음악(유튜브/트랙) 조합
    ────────────────────────────────────────────── */
 
 import React, { useState, useEffect, useRef } from 'react';
@@ -21,9 +24,13 @@ import {
   Trash2,
   Play,
   Loader2,
+  Lock,
+  Globe,
+  BookOpen,
 } from 'lucide-react';
 import type { Track, Post } from '@/lib/types';
 import api from '@/lib/api';
+import { compressImage } from '@/lib/imageCompressor';
 
 interface CreatePostModalProps {
   isOpen: boolean;
@@ -33,13 +40,13 @@ interface CreatePostModalProps {
 }
 
 const PRESET_TAGS = [
-  'VinylMood',
+  '나만의기록',
   'NightDrive',
   'CafeVibes',
-  'FrenchHouse',
+  'VinylMood',
   'DeepGroove',
   'AnalogSound',
-  'DailyMusic',
+  'DailyDiary',
   'DiggerChoice',
 ];
 
@@ -51,8 +58,12 @@ export default function CreatePostModal({
 }: CreatePostModalProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Photo state
+  // Photo & Compression state
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const [isCompressing, setIsCompressing] = useState(false);
+
+  // Privacy Visibility state ('public' | 'private')
+  const [visibility, setVisibility] = useState<'public' | 'private'>('public');
 
   // Music state
   const [tracks, setTracks] = useState<Track[]>([]);
@@ -64,7 +75,7 @@ export default function CreatePostModal({
 
   // Text & tags state
   const [caption, setCaption] = useState('');
-  const [tags, setTags] = useState<string[]>(['VinylMood']);
+  const [tags, setTags] = useState<string[]>(['나만의기록']);
   const [customTag, setCustomTag] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [loadingTracks, setLoadingTracks] = useState(false);
@@ -88,15 +99,21 @@ export default function CreatePostModal({
 
   if (!isOpen) return null;
 
-  // Handle Photo Upload
-  const handlePhotoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Handle Photo Select & Client-Side Auto Compression (초경량 압축)
+  const handlePhotoSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setPhotoPreview(reader.result as string);
-      };
-      reader.readAsDataURL(file);
+    if (!file) return;
+
+    setIsCompressing(true);
+    try {
+      // 1200px, 82% 퀄리티로 브라우저에서 98% 용량 다이어트 압축
+      const compressedBase64 = await compressImage(file, 1200, 0.82);
+      setPhotoPreview(compressedBase64);
+    } catch (err) {
+      console.error(err);
+      alert('사진 압축에 실패했습니다.');
+    } finally {
+      setIsCompressing(false);
     }
   };
 
@@ -107,7 +124,6 @@ export default function CreatePostModal({
 
     setIsYoutubeMatching(true);
     try {
-      // YouTube Video ID 추출
       let videoId = '';
       const match = url.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([\w-]{11})/);
       if (match) {
@@ -187,10 +203,12 @@ export default function CreatePostModal({
         image_url: photoPreview || '',
         caption: caption.trim(),
         tags,
+        visibility,
       });
 
       newPost.track = selectedTrack || undefined;
       newPost.image_url = photoPreview || undefined;
+      newPost.visibility = visibility;
 
       onPostCreated?.(newPost);
       onClose();
@@ -199,6 +217,7 @@ export default function CreatePostModal({
       setCaption('');
       setPhotoPreview(null);
       setSelectedTrack(null);
+      setVisibility('public');
     } catch (err) {
       console.error('Failed to create post:', err);
       alert('포스트 게시에 실패했습니다.');
@@ -225,18 +244,67 @@ export default function CreatePostModal({
           </button>
 
           {/* Modal Header */}
-          <div className="flex items-center gap-2 mb-5 text-sm font-bold text-[#d4a853]">
-            <Sparkles className="w-4 h-4" />
-            감성 사진 & 음악 피드 올리기
+          <div className="flex items-center justify-between mb-5 pr-8">
+            <div className="flex items-center gap-2 text-sm font-bold text-[#d4a853]">
+              <BookOpen className="w-4 h-4" />
+              뮤직플레잉 앨범 & 음악 다이어리 작성
+            </div>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-5">
-            {/* ── 1. Photo Upload Section (인스타 감성 사진) ── */}
+            {/* ── 0. Privacy Visibility Toggle (프라이버시 설정) ── */}
+            <div className="p-3 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-between">
+              <div>
+                <span className="text-xs font-bold text-white flex items-center gap-1.5">
+                  {visibility === 'public' ? (
+                    <>
+                      <Globe className="w-3.5 h-3.5 text-[#d4a853]" /> 전체 공개 (피드 공유)
+                    </>
+                  ) : (
+                    <>
+                      <Lock className="w-3.5 h-3.5 text-blue-400" /> 나만 보기 (프라이빗 다이어리)
+                    </>
+                  )}
+                </span>
+                <p className="text-[10px] text-muted-foreground mt-0.5">
+                  {visibility === 'public'
+                    ? '피드에 공개되어 친구들과 감성을 나눕니다.'
+                    : '오직 나만의 프로필 다이어리에 안전하게 보관됩니다.'}
+                </p>
+              </div>
+
+              <div className="flex rounded-xl bg-black/40 p-1 border border-white/10">
+                <button
+                  type="button"
+                  onClick={() => setVisibility('public')}
+                  className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
+                    visibility === 'public'
+                      ? 'bg-[#d4a853] text-black font-bold shadow'
+                      : 'text-muted-foreground hover:text-white'
+                  }`}
+                >
+                  공개
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setVisibility('private')}
+                  className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
+                    visibility === 'private'
+                      ? 'bg-blue-500 text-white font-bold shadow'
+                      : 'text-muted-foreground hover:text-white'
+                  }`}
+                >
+                  비공개
+                </button>
+              </div>
+            </div>
+
+            {/* ── 1. Photo Upload Section (브라우저 자동 98% 압축) ── */}
             <div>
               <label className="block text-xs font-bold text-white/90 uppercase tracking-wider mb-2 flex items-center justify-between">
                 <span>📸 감성 사진 업로드</span>
-                <span className="text-[10px] text-muted-foreground font-normal">
-                  (LP판, 일상 사진, 여행, 무드샷)
+                <span className="text-[10px] text-green-400 font-mono font-medium">
+                  {isCompressing ? '초경량 압축 중...' : '자동 경량화 압축'}
                 </span>
               </label>
 
@@ -267,17 +335,26 @@ export default function CreatePostModal({
               ) : (
                 <div
                   onClick={() => fileInputRef.current?.click()}
-                  className="border-2 border-dashed border-white/15 hover:border-[#d4a853]/60 rounded-2xl p-6 text-center cursor-pointer transition-all bg-white/[0.02] hover:bg-white/[0.05] group"
+                  className="border-2 border-dashed border-white/15 hover:border-[#d4a853]/60 rounded-2xl p-5 text-center cursor-pointer transition-all bg-white/[0.02] hover:bg-white/[0.05] group"
                 >
-                  <div className="w-12 h-12 rounded-full bg-[#d4a853]/15 text-[#d4a853] flex items-center justify-center mx-auto mb-2 group-hover:scale-110 transition-transform">
-                    <ImageIcon className="w-6 h-6" />
-                  </div>
-                  <p className="text-xs font-semibold text-white mb-1">
-                    어울리는 사진 추가하기
-                  </p>
-                  <p className="text-[10px] text-muted-foreground">
-                    클릭하여 사진 파일(JPG, PNG)을 선택하세요
-                  </p>
+                  {isCompressing ? (
+                    <div className="py-3 flex flex-col items-center gap-2">
+                      <Loader2 className="w-6 h-6 text-[#d4a853] animate-spin" />
+                      <span className="text-xs text-muted-foreground">사진을 가볍게 압축하고 있습니다...</span>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="w-10 h-10 rounded-full bg-[#d4a853]/15 text-[#d4a853] flex items-center justify-center mx-auto mb-2 group-hover:scale-110 transition-transform">
+                        <ImageIcon className="w-5 h-5" />
+                      </div>
+                      <p className="text-xs font-semibold text-white mb-0.5">
+                        어울리는 감성 사진 추가
+                      </p>
+                      <p className="text-[10px] text-muted-foreground">
+                        LP판, 일상 사진, 여행 무드샷을 가볍게 업로드하세요
+                      </p>
+                    </>
+                  )}
                 </div>
               )}
             </div>
@@ -285,7 +362,7 @@ export default function CreatePostModal({
             {/* ── 2. Match Music / Track (어울리는 음악 선택) ── */}
             <div>
               <label className="block text-xs font-bold text-white/90 uppercase tracking-wider mb-2 flex items-center justify-between">
-                <span>🎵 사진에 어울리는 음악 매칭</span>
+                <span>🎵 사진에 어울리는 BGM 음악 매칭</span>
                 <span className="text-[10px] text-[#d4a853] font-semibold">필수</span>
               </label>
 
@@ -366,7 +443,7 @@ export default function CreatePostModal({
                         type="button"
                         onClick={handleMatchYouTube}
                         disabled={!youtubeUrlInput.trim() || isYoutubeMatching}
-                        className="px-4 py-2 rounded-xl bg-[#d4a853] text-black font-bold text-xs hover:bg-amber-400 transition-colors disabled:opacity-50 flex items-center gap-1"
+                        className="px-4 py-2 rounded-xl bg-[#d4a853] text-black font-bold text-xs hover:bg-amber-400 transition-colors disabled:opacity-50 flex items-center gap-1 cursor-pointer"
                       >
                         {isYoutubeMatching ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : '매칭'}
                       </button>
@@ -426,11 +503,11 @@ export default function CreatePostModal({
             {/* ── 3. Digger's Note (Caption) ── */}
             <div>
               <label className="block text-xs font-bold text-white/90 uppercase tracking-wider mb-2">
-                ✍️ 디거스 스토리 (Digger&apos;s Note)
+                ✍️ 다이어리 코멘트 (Digger&apos;s Note)
               </label>
               <textarea
                 rows={2}
-                placeholder="이 사진과 음악에 얽힌 이야기나 감상을 남겨보세요. (예: 비 오는 날 한남동 바이닐 바에서 흘러나오던 음악)"
+                placeholder="이 사진과 음악에 얽힌 이야기나 오늘의 감상을 편안하게 기록해보세요."
                 value={caption}
                 onChange={(e) => setCaption(e.target.value)}
                 className="w-full bg-white/5 border border-white/10 rounded-2xl p-3 text-xs text-white placeholder:text-muted-foreground focus:outline-none focus:border-[#d4a853] resize-none leading-relaxed"
@@ -474,11 +551,15 @@ export default function CreatePostModal({
             {/* ── Submit Button ── */}
             <button
               type="submit"
-              disabled={!selectedTrack || submitting}
+              disabled={(!selectedTrack && !photoPreview) || submitting || isCompressing}
               className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-[#d4a853] to-amber-400 text-black font-bold text-sm hover:opacity-95 transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-xl shadow-[#d4a853]/20 flex items-center justify-center gap-2 cursor-pointer"
             >
               <Check className="w-4 h-4" />
-              {submitting ? '게시 중...' : '피드에 공유하기'}
+              {submitting
+                ? '저장 중...'
+                : visibility === 'public'
+                  ? '피드에 공개하기'
+                  : '🔒 나만의 다이어리에 저장하기'}
             </button>
           </form>
         </motion.div>
