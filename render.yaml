@@ -9,7 +9,7 @@ services:
     runtime: docker
     dockerfilePath: docker/Dockerfile.backend
     dockerContext: .
-    plan: starter # or free
+    plan: free
     region: oregon # or singapore / frankfurt
     healthCheckPath: /health
     autoDeploy: true
@@ -20,10 +20,8 @@ services:
         value: "0.0.0.0"
       - key: SUPABASE_URL
         sync: false
-        # Enter your Supabase Project URL (e.g. https://xyz.supabase.co)
       - key: SUPABASE_KEY
         sync: false
-        # Enter your Supabase Anon Key or Service Role Key
       - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
       - key: SPOTIFY_CLIENT_ID
@@ -44,7 +42,7 @@ services:
     runtime: docker
     dockerfilePath: Dockerfile
     dockerContext: web
-    plan: starter # or free
+    plan: free
     region: oregon
     healthCheckPath: /
     autoDeploy: true
