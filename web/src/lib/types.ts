@@ -200,3 +200,36 @@ export interface ChartEntry {
   collector_count: number;
   thumbnail_url: string;
 }
+
+export interface Post {
+  id: string;
+  user_id: string;
+  track_id: string;
+  caption: string;
+  tags: string[];
+  likes_count: number;
+  comments_count: number;
+  created_at: string;
+  user?: UserProfile;
+  track?: Track;
+  is_liked?: boolean;
+}
+
+export interface PostComment {
+  id: string;
+  post_id: string;
+  user_id: string;
+  content: string;
+  created_at: string;
+  user?: UserProfile;
+}
+
+export interface HighlightItem {
+  id: string;
+  user_id: string;
+  title: string;
+  cover_url?: string;
+  track_ids: string[];
+  created_at: string;
+}
+

@@ -6,8 +6,16 @@ import requests as http_requests
 from fastapi import APIRouter, Depends, HTTPException
 
 from server.auth import get_current_user, get_optional_user
-from server.models import ActivityItem, ChartEntry, MessageResponse
+from server.models import (
+    ActivityItem,
+    ChartEntry,
+    HighlightCreate,
+    MessageResponse,
+    PostCommentCreate,
+    PostCreate,
+)
 from server.supabase_db import get_headers, is_supabase_enabled, _SUPABASE_URL
+
 
 router = APIRouter(prefix="/social", tags=["Social"])
 
@@ -288,3 +296,318 @@ def _create_activity(
         http_requests.post(url, headers=headers, json=payload, timeout=5)
     except Exception:
         pass  # 피드 기록 실패는 무시
+
+
+# ---------------------------------------------------------------------------
+# 인스타그램 감성 컬렉션 피드 (Instagram-Style Collection Posts)
+# ---------------------------------------------------------------------------
+
+@router.get("/posts")
+async def list_posts(
+    user_id: str | None = None,
+    username: str | None = None,
+    tag: str | None = None,
+    limit: int = 30,
+    offset: int = 0,
+    current_user_id: str | None = Depends(get_optional_user),
+):
+    """컬렉션 자랑 피드 포스트 목록을 조회합니다."""
+    if not is_supabase_enabled():
+        return []
+
+    headers = get_headers()
+    params: dict[str, str] = {
+        "order": "created_at.desc",
+        "limit": str(limit),
+        "offset": str(offset),
+        "select": "*,profiles:user_id(user_id,username,display_name,avatar_url),tracks:track_id(*)",
+    }
+
+    if user_id:
+        params["user_id"] = f"eq.{user_id}"
+    elif username:
+        # username으로 profile 조회 후 user_id 필터링
+        prof_res = http_requests.get(
+            f"{_SUPABASE_URL}/rest/v1/profiles",
+            headers=headers,
+            params={"username": f"eq.{username}", "select": "user_id"},
+            timeout=5,
+        )
+        if prof_res.ok and prof_res.json():
+            target_uid = prof_res.json()[0].get("user_id")
+            params["user_id"] = f"eq.{target_uid}"
+        else:
+            return []
+
+    if tag:
+        params["tags"] = f"cs.{{{tag}}}"
+
+    resp = http_requests.get(f"{_SUPABASE_URL}/rest/v1/posts", headers=headers, params=params, timeout=10)
+    if not resp.ok:
+        return []
+
+    posts_data = resp.json()
+
+    # 현재 로그인 사용자의 좋아요 여부(is_liked) 체크
+    if current_user_id and posts_data:
+        post_ids = [p["id"] for p in posts_data if "id" in p]
+        if post_ids:
+            likes_resp = http_requests.get(
+                f"{_SUPABASE_URL}/rest/v1/post_likes",
+                headers=headers,
+                params={
+                    "user_id": f"eq.{current_user_id}",
+                    "post_id": f"in.({','.join(post_ids)})",
+                    "select": "post_id",
+                },
+                timeout=5,
+            )
+            if likes_resp.ok:
+                liked_set = {r["post_id"] for r in likes_resp.json()}
+                for p in posts_data:
+                    p["is_liked"] = p.get("id") in liked_set
+
+    # Supabase 조인 결과를 프론트엔드 포맷(user, track)으로 매핑
+    result = []
+    for p in posts_data:
+        p_copy = dict(p)
+        if "profiles" in p_copy:
+            p_copy["user"] = p_copy.pop("profiles")
+        if "tracks" in p_copy:
+            p_copy["track"] = p_copy.pop("tracks")
+        result.append(p_copy)
+
+    return result
+
+
+@router.post("/posts")
+async def create_post(
+    req: PostCreate,
+    user_id: str = Depends(get_current_user),
+):
+    """소장 트랙에 대한 감성 피드 포스트를 작성합니다."""
+    if not is_supabase_enabled():
+        raise HTTPException(status_code=500, detail="Supabase가 설정되지 않았습니다.")
+
+    url = f"{_SUPABASE_URL}/rest/v1/posts"
+    headers = get_headers()
+    headers["Prefer"] = "return=representation"
+
+    payload = {
+        "user_id": user_id,
+        "track_id": req.track_id,
+        "caption": req.caption,
+        "tags": req.tags,
+    }
+
+    resp = http_requests.post(url, headers=headers, json=payload, timeout=10)
+    if not resp.ok:
+        raise HTTPException(status_code=resp.status_code, detail=f"포스트 생성 실패: {resp.text}")
+
+    post = resp.json()[0] if resp.json() else payload
+
+    # 활동 피드 기록
+    _create_activity(
+        user_id,
+        "created_post",
+        "post",
+        str(post.get("id", "")),
+        {"track_id": req.track_id, "caption": req.caption[:50]},
+    )
+
+    return post
+
+
+@router.delete("/posts/{post_id}", response_model=MessageResponse)
+async def delete_post(
+    post_id: str,
+    user_id: str = Depends(get_current_user),
+):
+    """피드 포스트를 삭제합니다."""
+    if not is_supabase_enabled():
+        raise HTTPException(status_code=500, detail="Supabase가 설정되지 않았습니다.")
+
+    url = f"{_SUPABASE_URL}/rest/v1/posts"
+    headers = get_headers()
+
+    resp = http_requests.delete(
+        url,
+        headers=headers,
+        params={"id": f"eq.{post_id}", "user_id": f"eq.{user_id}"},
+        timeout=5,
+    )
+    if not resp.ok:
+        raise HTTPException(status_code=resp.status_code, detail="포스트 삭제 실패")
+
+    return MessageResponse(message="포스트가 삭제되었습니다.")
+
+
+@router.post("/posts/{post_id}/like")
+async def toggle_post_like(
+    post_id: str,
+    user_id: str = Depends(get_current_user),
+):
+    """포스트 좋아요를 토글합니다."""
+    if not is_supabase_enabled():
+        raise HTTPException(status_code=500, detail="Supabase가 설정되지 않았습니다.")
+
+    headers = get_headers()
+    # 1. 이미 좋아요 했는지 확인
+    check_resp = http_requests.get(
+        f"{_SUPABASE_URL}/rest/v1/post_likes",
+        headers=headers,
+        params={"post_id": f"eq.{post_id}", "user_id": f"eq.{user_id}"},
+        timeout=5,
+    )
+
+    liked = False
+    if check_resp.ok and check_resp.json():
+        # 좋아요 취소
+        http_requests.delete(
+            f"{_SUPABASE_URL}/rest/v1/post_likes",
+            headers=headers,
+            params={"post_id": f"eq.{post_id}", "user_id": f"eq.{user_id}"},
+            timeout=5,
+        )
+        liked = False
+    else:
+        # 좋아요 추가
+        http_requests.post(
+            f"{_SUPABASE_URL}/rest/v1/post_likes",
+            headers=headers,
+            json={"post_id": post_id, "user_id": user_id},
+            timeout=5,
+        )
+        liked = True
+
+    # 최신 likes_count 조회
+    post_resp = http_requests.get(
+        f"{_SUPABASE_URL}/rest/v1/posts",
+        headers=headers,
+        params={"id": f"eq.{post_id}", "select": "likes_count"},
+        timeout=5,
+    )
+    count = 0
+    if post_resp.ok and post_resp.json():
+        count = post_resp.json()[0].get("likes_count", 0)
+
+    return {"liked": liked, "likes_count": count}
+
+
+@router.get("/posts/{post_id}/comments")
+async def get_post_comments(post_id: str):
+    """포스트 댓글 목록을 조회합니다."""
+    if not is_supabase_enabled():
+        return []
+
+    headers = get_headers()
+    params = {
+        "post_id": f"eq.{post_id}",
+        "order": "created_at.asc",
+        "select": "*,profiles:user_id(user_id,username,display_name,avatar_url)",
+    }
+
+    resp = http_requests.get(f"{_SUPABASE_URL}/rest/v1/post_comments", headers=headers, params=params, timeout=10)
+    if not resp.ok:
+        return []
+
+    comments = resp.json()
+    for c in comments:
+        if "profiles" in c:
+            c["user"] = c.pop("profiles")
+    return comments
+
+
+@router.post("/posts/{post_id}/comments")
+async def add_post_comment(
+    post_id: str,
+    req: PostCommentCreate,
+    user_id: str = Depends(get_current_user),
+):
+    """포스트에 댓글을 작성합니다."""
+    if not is_supabase_enabled():
+        raise HTTPException(status_code=500, detail="Supabase가 설정되지 않았습니다.")
+
+    url = f"{_SUPABASE_URL}/rest/v1/post_comments"
+    headers = get_headers()
+    headers["Prefer"] = "return=representation"
+
+    payload = {
+        "post_id": post_id,
+        "user_id": user_id,
+        "content": req.content,
+    }
+
+    resp = http_requests.post(url, headers=headers, json=payload, timeout=10)
+    if not resp.ok:
+        raise HTTPException(status_code=resp.status_code, detail="댓글 작성 실패")
+
+    comment = resp.json()[0] if resp.json() else payload
+    return comment
+
+
+# ---------------------------------------------------------------------------
+# 스토리 하이라이트 (Highlights)
+# ---------------------------------------------------------------------------
+
+@router.get("/highlights")
+async def list_highlights(user: str | None = None):
+    """유저의 스토리 하이라이트 큐레이션 목록을 조회합니다."""
+    if not is_supabase_enabled():
+        return []
+
+    headers = get_headers()
+    params: dict[str, str] = {
+        "order": "created_at.desc",
+        "select": "*",
+    }
+
+    if user:
+        # UUID or username
+        if len(user) == 36 and "-" in user:
+            params["user_id"] = f"eq.{user}"
+        else:
+            prof_res = http_requests.get(
+                f"{_SUPABASE_URL}/rest/v1/profiles",
+                headers=headers,
+                params={"username": f"eq.{user}", "select": "user_id"},
+                timeout=5,
+            )
+            if prof_res.ok and prof_res.json():
+                params["user_id"] = f"eq.{prof_res.json()[0]['user_id']}"
+            else:
+                return []
+
+    resp = http_requests.get(f"{_SUPABASE_URL}/rest/v1/highlights", headers=headers, params=params, timeout=10)
+    if not resp.ok:
+        return []
+
+    return resp.json()
+
+
+@router.post("/highlights")
+async def create_highlight(
+    req: HighlightCreate,
+    user_id: str = Depends(get_current_user),
+):
+    """새 하이라이트 큐레이션을 생성합니다."""
+    if not is_supabase_enabled():
+        raise HTTPException(status_code=500, detail="Supabase가 설정되지 않았습니다.")
+
+    url = f"{_SUPABASE_URL}/rest/v1/highlights"
+    headers = get_headers()
+    headers["Prefer"] = "return=representation"
+
+    payload = {
+        "user_id": user_id,
+        "title": req.title,
+        "cover_url": req.cover_url,
+        "track_ids": req.track_ids,
+    }
+
+    resp = http_requests.post(url, headers=headers, json=payload, timeout=10)
+    if not resp.ok:
+        raise HTTPException(status_code=resp.status_code, detail="하이라이트 생성 실패")
+
+    return resp.json()[0] if resp.json() else payload
+

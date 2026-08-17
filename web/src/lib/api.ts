@@ -389,7 +389,77 @@ class WaveMashAPI {
   async getMostCollectedChart(): Promise<import('./types').ChartEntry[]> {
     return this.fetch<import('./types').ChartEntry[]>('/api/social/charts/most-collected');
   }
+
+  /* ── Instagram-Style Collection Feed & Posts Endpoints ── */
+
+  async getPosts(params?: {
+    user_id?: string;
+    username?: string;
+    tag?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<import('./types').Post[]> {
+    const qs = this.buildQueryString(params || {});
+    return this.fetch<import('./types').Post[]>(`/api/social/posts${qs}`);
+  }
+
+  async createPost(data: {
+    track_id: string;
+    caption: string;
+    tags?: string[];
+  }): Promise<import('./types').Post> {
+    return this.fetch<import('./types').Post>('/api/social/posts', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deletePost(postId: string): Promise<void> {
+    return this.fetch<void>(`/api/social/posts/${encodeURIComponent(postId)}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async togglePostLike(postId: string): Promise<{ liked: boolean; likes_count: number }> {
+    return this.fetch<{ liked: boolean; likes_count: number }>(
+      `/api/social/posts/${encodeURIComponent(postId)}/like`,
+      { method: 'POST' }
+    );
+  }
+
+  async getPostComments(postId: string): Promise<import('./types').PostComment[]> {
+    return this.fetch<import('./types').PostComment[]>(
+      `/api/social/posts/${encodeURIComponent(postId)}/comments`
+    );
+  }
+
+  async addPostComment(postId: string, content: string): Promise<import('./types').PostComment> {
+    return this.fetch<import('./types').PostComment>(
+      `/api/social/posts/${encodeURIComponent(postId)}/comments`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ content }),
+      }
+    );
+  }
+
+  async getHighlights(userIdOrUsername?: string): Promise<import('./types').HighlightItem[]> {
+    const qs = userIdOrUsername ? `?user=${encodeURIComponent(userIdOrUsername)}` : '';
+    return this.fetch<import('./types').HighlightItem[]>(`/api/social/highlights${qs}`);
+  }
+
+  async createHighlight(data: {
+    title: string;
+    cover_url?: string;
+    track_ids: string[];
+  }): Promise<import('./types').HighlightItem> {
+    return this.fetch<import('./types').HighlightItem>('/api/social/highlights', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
 }
 
 export const api = new WaveMashAPI();
 export default api;
+

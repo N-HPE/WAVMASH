@@ -21,11 +21,12 @@ import {
 } from '@/components/ui/dropdown-menu';
 
 const NAV_ITEMS = [
-  { label: '대시보드', href: '/' },
-  { label: '라이브러리', href: '/library' },
+  { label: '피드', href: '/' },
+  { label: '탐색 (Library)', href: '/library' },
   { label: '플레이리스트', href: '/playlists' },
-  { label: '다운로드', href: '/download' },
+  { label: '음원 소장', href: '/download' },
 ] as const;
+
 
 export default function Navbar() {
   const pathname = usePathname();

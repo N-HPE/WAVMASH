@@ -272,21 +272,140 @@ CREATE POLICY "Users can unlike playlists" ON public.playlist_likes
 
 
 -- ═══════════════════════════════════════════════════════════════════════════
--- 7. Storage bucket for avatars
+-- 8. Instagram-Style Collection Feed (Posts, Comments, Likes, Highlights)
 -- ═══════════════════════════════════════════════════════════════════════════
 
-INSERT INTO storage.buckets (id, name, public)
-VALUES ('avatars', 'avatars', true)
-ON CONFLICT (id) DO NOTHING;
+-- Posts (Digger's Feed Posts)
+CREATE TABLE IF NOT EXISTS public.posts (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES public.profiles(user_id) ON DELETE CASCADE,
+    track_id TEXT NOT NULL REFERENCES public.tracks(track_id) ON DELETE CASCADE,
+    caption TEXT DEFAULT '',
+    tags TEXT[] DEFAULT '{}',
+    likes_count INTEGER DEFAULT 0,
+    comments_count INTEGER DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
 
-DROP POLICY IF EXISTS "Avatar images are publicly accessible" ON storage.objects;
-CREATE POLICY "Avatar images are publicly accessible" ON storage.objects
-    FOR SELECT USING (bucket_id = 'avatars');
+CREATE INDEX IF NOT EXISTS idx_posts_user ON public.posts(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_posts_created ON public.posts(created_at DESC);
 
-DROP POLICY IF EXISTS "Users can upload own avatar" ON storage.objects;
-CREATE POLICY "Users can upload own avatar" ON storage.objects
-    FOR INSERT WITH CHECK (bucket_id = 'avatars');
+-- Post Likes
+CREATE TABLE IF NOT EXISTS public.post_likes (
+    post_id UUID NOT NULL REFERENCES public.posts(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES public.profiles(user_id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (post_id, user_id)
+);
 
-DROP POLICY IF EXISTS "Users can update own avatar" ON storage.objects;
-CREATE POLICY "Users can update own avatar" ON storage.objects
-    FOR UPDATE USING (bucket_id = 'avatars');
+-- Post Comments
+CREATE TABLE IF NOT EXISTS public.post_comments (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    post_id UUID NOT NULL REFERENCES public.posts(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES public.profiles(user_id) ON DELETE CASCADE,
+    content TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_post_comments_post ON public.post_comments(post_id, created_at ASC);
+
+-- Profile Story Highlights (인스타 스토리 큐레이션 하이라이트)
+CREATE TABLE IF NOT EXISTS public.highlights (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES public.profiles(user_id) ON DELETE CASCADE,
+    title TEXT NOT NULL,
+    cover_url TEXT DEFAULT '',
+    track_ids TEXT[] DEFAULT '{}',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_highlights_user ON public.highlights(user_id, created_at DESC);
+
+-- Trigger to maintain likes_count on posts
+CREATE OR REPLACE FUNCTION public.update_post_likes_count()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF TG_OP = 'INSERT' THEN
+        UPDATE public.posts SET likes_count = likes_count + 1 WHERE id = NEW.post_id;
+    ELSIF TG_OP = 'DELETE' THEN
+        UPDATE public.posts SET likes_count = GREATEST(likes_count - 1, 0) WHERE id = OLD.post_id;
+    END IF;
+    RETURN COALESCE(NEW, OLD);
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_post_likes_count ON public.post_likes;
+CREATE TRIGGER trg_post_likes_count
+    AFTER INSERT OR DELETE ON public.post_likes
+    FOR EACH ROW
+    EXECUTE FUNCTION public.update_post_likes_count();
+
+-- Trigger to maintain comments_count on posts
+CREATE OR REPLACE FUNCTION public.update_post_comments_count()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF TG_OP = 'INSERT' THEN
+        UPDATE public.posts SET comments_count = comments_count + 1 WHERE id = NEW.post_id;
+    ELSIF TG_OP = 'DELETE' THEN
+        UPDATE public.posts SET comments_count = GREATEST(comments_count - 1, 0) WHERE id = OLD.post_id;
+    END IF;
+    RETURN COALESCE(NEW, OLD);
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_post_comments_count ON public.post_comments;
+CREATE TRIGGER trg_post_comments_count
+    AFTER INSERT OR DELETE ON public.post_comments
+    FOR EACH ROW
+    EXECUTE FUNCTION public.update_post_comments_count();
+
+-- RLS Policies
+ALTER TABLE public.posts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.post_likes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.post_comments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.highlights ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Posts are viewable by everyone" ON public.posts;
+CREATE POLICY "Posts are viewable by everyone" ON public.posts
+    FOR SELECT USING (TRUE);
+
+DROP POLICY IF EXISTS "Users can insert own posts" ON public.posts;
+CREATE POLICY "Users can insert own posts" ON public.posts
+    FOR INSERT WITH CHECK (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can delete own posts" ON public.posts;
+CREATE POLICY "Users can delete own posts" ON public.posts
+    FOR DELETE USING (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Post likes are viewable by everyone" ON public.post_likes;
+CREATE POLICY "Post likes are viewable by everyone" ON public.post_likes
+    FOR SELECT USING (TRUE);
+
+DROP POLICY IF EXISTS "Users can toggle like on posts" ON public.post_likes;
+CREATE POLICY "Users can toggle like on posts" ON public.post_likes
+    FOR INSERT WITH CHECK (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can remove like on posts" ON public.post_likes;
+CREATE POLICY "Users can remove like on posts" ON public.post_likes
+    FOR DELETE USING (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Comments are viewable by everyone" ON public.post_comments;
+CREATE POLICY "Comments are viewable by everyone" ON public.post_comments
+    FOR SELECT USING (TRUE);
+
+DROP POLICY IF EXISTS "Users can insert comments" ON public.post_comments;
+CREATE POLICY "Users can insert comments" ON public.post_comments
+    FOR INSERT WITH CHECK (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can delete own comments" ON public.post_comments;
+CREATE POLICY "Users can delete own comments" ON public.post_comments
+    FOR DELETE USING (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Highlights are viewable by everyone" ON public.highlights;
+CREATE POLICY "Highlights are viewable by everyone" ON public.highlights
+    FOR SELECT USING (TRUE);
+
+DROP POLICY IF EXISTS "Users can manage own highlights" ON public.highlights;
+CREATE POLICY "Users can manage own highlights" ON public.highlights
+    FOR ALL USING (auth.uid() = user_id);
+

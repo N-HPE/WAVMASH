@@ -239,6 +239,23 @@ class ChartEntry(BaseModel):
     collector_count: int = 0
     thumbnail_url: str | None = None
 
+class PostCreate(BaseModel):
+    """인스타 피드 포스트 생성."""
+    track_id: str
+    caption: str = ""
+    tags: list[str] = Field(default_factory=list)
+
+class PostCommentCreate(BaseModel):
+    """포스트 댓글 생성."""
+    content: str
+
+class HighlightCreate(BaseModel):
+    """스토리 큐레이션 하이라이트 생성."""
+    title: str
+    cover_url: str = ""
+    track_ids: list[str] = Field(default_factory=list)
+
+
 
 # ---------------------------------------------------------------------------
 # 공통 응답 모델
