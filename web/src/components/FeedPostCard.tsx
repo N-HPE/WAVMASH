@@ -2,10 +2,10 @@
 
 /* ──────────────────────────────────────────────
    WaveMash — Instagram-Style Feed Post Card
-   앨범 자켓, 바이닐 인터랙션, Digger's Note, 오디오 프리뷰, 댓글/좋아요
+   인스타/릴스 감성: 앨범 자켓, 바이닐 스핀, 좋아요/댓글/다운로드/공유 4대 지표 카운터
    ────────────────────────────────────────────── */
 
-import React, { useState, useRef } from 'react';
+import React, { useState } from 'react';
 import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -20,6 +20,9 @@ import {
   Send,
   Trash2,
   ExternalLink,
+  Download,
+  Check,
+  Sparkles,
 } from 'lucide-react';
 import type { Post, PostComment } from '@/lib/types';
 import api from '@/lib/api';
@@ -32,6 +35,16 @@ interface FeedPostCardProps {
   currentUserId?: string;
   onDelete?: (postId: string) => void;
   onLikeToggle?: (postId: string, liked: boolean) => void;
+}
+
+function formatCount(num: number): string {
+  if (num >= 1000000) {
+    return (num / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
+  }
+  if (num >= 1000) {
+    return (num / 1000).toFixed(1).replace(/\.0$/, '') + 'k';
+  }
+  return num.toString();
 }
 
 export default function FeedPostCard({
@@ -48,7 +61,11 @@ export default function FeedPostCard({
 
   const [isLiked, setIsLiked] = useState(post.is_liked || false);
   const [likesCount, setLikesCount] = useState(post.likes_count || 0);
-  const [isCollected, setIsCollected] = useState(false);
+  const [sharesCount, setSharesCount] = useState(post.shares_count || 0);
+  const [downloadsCount, setDownloadsCount] = useState(post.downloads_count || 0);
+  const [isDownloading, setIsDownloading] = useState(false);
+  const [isDownloaded, setIsDownloaded] = useState(false);
+
   const [showComments, setShowComments] = useState(false);
   const [comments, setComments] = useState<PostComment[]>([]);
   const [newComment, setNewComment] = useState('');
@@ -63,7 +80,7 @@ export default function FeedPostCard({
     track?.dominant_color
   );
 
-  // 좋아요 토글 핸들러
+  // 1. 좋아요 토글 핸들러
   const handleLike = async () => {
     const nextLiked = !isLiked;
     setIsLiked(nextLiked);
@@ -75,28 +92,44 @@ export default function FeedPostCard({
       setIsLiked(res.liked);
       onLikeToggle?.(post.id, res.liked);
     } catch {
-      // 롤백
       setIsLiked(!nextLiked);
       setLikesCount((prev) => (!nextLiked ? prev + 1 : Math.max(prev - 1, 0)));
     }
   };
 
-  // 컬렉션 담기 핸들러
-  const handleCollect = async () => {
+  // 2. 음원 다운로드 및 소장 핸들러
+  const handleDownload = async () => {
     if (!track) return;
-    setIsCollected(!isCollected);
+    setIsDownloading(true);
     try {
-      if (!isCollected) {
-        await api.collectTrack(track.track_id);
-      } else {
-        await api.uncollectTrack(track.track_id);
-      }
+      const videoUrl = track.url || `https://www.youtube.com/watch?v=${track.track_id}`;
+      await api.startDownload(videoUrl);
+      setIsDownloaded(true);
+      setDownloadsCount((prev) => prev + 1);
+      api.recordTrackDownload(track.track_id, {
+        title: track.title,
+        artist: track.artist,
+        cover_url: coverUrl,
+      });
     } catch (e) {
       console.error(e);
+    } finally {
+      setIsDownloading(false);
     }
   };
 
-  // 앨범 커버 클릭 시 통합 플레이어로 자동 재생
+  // 3. 공유 핸들러 (스토리 모달 열기 + 카운트 증가)
+  const handleShare = async () => {
+    setShowShareModal(true);
+    try {
+      const res = await api.sharePost(post.id);
+      setSharesCount(res.shares_count);
+    } catch (err) {
+      console.warn(err);
+    }
+  };
+
+  // 4. 앨범 커버 클릭 시 통합 플레이어로 자동 재생
   const handleCoverClick = () => {
     if (!track) return;
     if (currentTrack?.track_id === track.track_id) {
@@ -106,8 +139,7 @@ export default function FeedPostCard({
     }
   };
 
-
-  // 댓글 목록 조회
+  // 5. 댓글 목록 조회
   const toggleCommentSection = async () => {
     const next = !showComments;
     setShowComments(next);
@@ -124,7 +156,7 @@ export default function FeedPostCard({
     }
   };
 
-  // 댓글 작성
+  // 6. 댓글 작성
   const handleAddComment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newComment.trim()) return;
@@ -142,68 +174,64 @@ export default function FeedPostCard({
 
   if (!track) return null;
 
-  const isOwner = currentUserId && post.user_id === currentUserId;
+  const isOwner = currentUserId && user?.user_id === currentUserId;
 
   return (
     <>
-      <article className="w-full max-w-xl mx-auto rounded-2xl bg-[#0f111e]/90 border border-white/[0.08] shadow-2xl overflow-hidden mb-8 backdrop-blur-xl transition-all duration-300 hover:border-white/15">
-        {/* ── 1. Post Header ── */}
-        <div className="flex items-center justify-between px-4 py-3.5 border-b border-white/[0.06]">
+      <motion.article
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4 }}
+        className="glass-strong rounded-3xl overflow-hidden border border-white/10 shadow-2xl bg-[#0b0b14]/80 backdrop-blur-xl"
+      >
+        {/* ── 1. Post Header (Digger Profile) ── */}
+        <div className="flex items-center justify-between p-4 border-b border-white/5">
           <Link
-            href={`/profile/${user?.username || 'unknown'}`}
+            href={`/profile/${user?.username || 'user'}`}
             className="flex items-center gap-3 group"
           >
-            <div className="relative w-10 h-10 rounded-full p-[1.5px] bg-gradient-to-tr from-[#d4a853] to-amber-300">
-              <div className="w-full h-full rounded-full overflow-hidden bg-black/60 flex items-center justify-center">
-                {user?.avatar_url ? (
-                  <img
-                    src={user.avatar_url}
-                    alt={user.display_name || user.username}
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  <span className="text-sm font-bold text-[#d4a853]">
-                    {(user?.display_name || user?.username || 'D').charAt(0).toUpperCase()}
-                  </span>
-                )}
-              </div>
+            <div className="relative w-10 h-10 rounded-full border border-[#d4a853]/60 p-0.5 shadow-md">
+              {user?.avatar_url ? (
+                <img
+                  src={user.avatar_url}
+                  alt={user.display_name}
+                  className="w-full h-full rounded-full object-cover"
+                />
+              ) : (
+                <div className="w-full h-full rounded-full bg-gradient-to-tr from-[#2a1a08] to-[#d4a853]/30 flex items-center justify-center font-bold text-xs text-[#d4a853]">
+                  {user?.username?.slice(0, 2).toUpperCase() || 'WM'}
+                </div>
+              )}
             </div>
             <div>
-              <div className="flex items-center gap-1.5">
-                <span className="text-sm font-semibold text-white group-hover:text-[#d4a853] transition-colors">
-                  {user?.display_name || user?.username || 'Collector'}
-                </span>
-                <span className="text-xs text-muted-foreground">@{user?.username || 'digger'}</span>
-              </div>
-              <span className="text-[10px] text-muted-foreground block">
-                {new Date(post.created_at).toLocaleDateString('ko-KR', {
-                  month: 'short',
-                  day: 'numeric',
-                })}
-              </span>
+              <h4 className="font-bold text-sm text-white group-hover:text-[#d4a853] transition-colors leading-tight">
+                {user?.display_name || user?.username || '디거'}
+              </h4>
+              <p className="text-[11px] text-muted-foreground font-mono">
+                @{user?.username || 'digger'}
+              </p>
             </div>
           </Link>
 
-          {/* Right Menu */}
           <div className="relative">
             <button
               onClick={() => setShowMenu(!showMenu)}
-              className="p-1.5 rounded-full hover:bg-white/10 text-muted-foreground hover:text-white transition-colors"
+              className="p-2 text-white/60 hover:text-white rounded-full hover:bg-white/5 transition-colors"
             >
               <MoreHorizontal className="w-5 h-5" />
             </button>
 
             {showMenu && (
-              <div className="absolute right-0 top-8 z-30 w-44 rounded-xl bg-[#181829] border border-white/10 shadow-2xl py-1 text-xs backdrop-blur-xl">
+              <div className="absolute right-0 top-full mt-1 w-44 rounded-xl bg-[#181828] border border-white/10 shadow-2xl py-1 z-50 text-xs font-medium backdrop-blur-lg">
                 <button
                   onClick={() => {
-                    setShowShareModal(true);
+                    handleShare();
                     setShowMenu(false);
                   }}
-                  className="w-full flex items-center gap-2 px-3 py-2 text-white hover:bg-white/10 text-left"
+                  className="w-full flex items-center gap-2 px-3 py-2 text-white hover:bg-white/10 text-left cursor-pointer"
                 >
                   <Share2 className="w-4 h-4 text-[#d4a853]" />
-                  인스타 스토리 카드 생성
+                  스토리 카드 생성
                 </button>
                 <Link
                   href={`/track/${track.track_id}`}
@@ -218,7 +246,7 @@ export default function FeedPostCard({
                       onDelete?.(post.id);
                       setShowMenu(false);
                     }}
-                    className="w-full flex items-center gap-2 px-3 py-2 text-red-400 hover:bg-red-500/10 text-left"
+                    className="w-full flex items-center gap-2 px-3 py-2 text-red-400 hover:bg-red-500/10 text-left cursor-pointer"
                   >
                     <Trash2 className="w-4 h-4" />
                     포스트 삭제
@@ -241,7 +269,7 @@ export default function FeedPostCard({
             style={{ backgroundColor: glowColor }}
           />
 
-          {/* Vinyl Disc Slipout */}
+          {/* Vinyl Disc Slipout Animation */}
           <div
             className={`absolute z-10 w-4/5 h-4/5 rounded-full bg-black border-4 border-[#222] shadow-2xl flex items-center justify-center transition-all duration-700 ${
               isCurrentTrackPlaying
@@ -303,60 +331,76 @@ export default function FeedPostCard({
           </div>
         </div>
 
-        {/* ── 3. Post Interaction Bar ── */}
+        {/* ── 3. Instagram / Reels Style 4-Action Metrics Bar ── */}
         <div className="px-4 pt-3.5 pb-2">
           <div className="flex items-center justify-between mb-2.5">
-            <div className="flex items-center gap-4">
-              {/* Like Button */}
+            <div className="flex items-center gap-5 sm:gap-6">
+              {/* ① Like Counter */}
               <motion.button
-                whileTap={{ scale: 0.85 }}
+                whileTap={{ scale: 0.8 }}
                 onClick={handleLike}
-                className="flex items-center gap-1.5 text-white/90 hover:text-red-500 transition-colors"
+                className="flex items-center gap-1.5 text-white/90 hover:text-red-500 transition-colors group cursor-pointer"
+                title="좋아요"
               >
                 <Heart
-                  className={`w-6 h-6 transition-colors ${
+                  className={`w-6 h-6 transition-transform group-hover:scale-110 ${
                     isLiked ? 'fill-red-500 text-red-500' : 'text-white/80'
                   }`}
                 />
-                <span className="text-xs font-semibold">{likesCount}</span>
+                <span className="text-xs font-bold font-mono">
+                  {formatCount(likesCount)}
+                </span>
               </motion.button>
 
-              {/* Comment Button */}
+              {/* ② Comment Counter */}
               <button
                 onClick={toggleCommentSection}
-                className="flex items-center gap-1.5 text-white/80 hover:text-[#d4a853] transition-colors"
+                className="flex items-center gap-1.5 text-white/80 hover:text-[#d4a853] transition-colors group cursor-pointer"
+                title="댓글"
               >
-                <MessageCircle className="w-6 h-6" />
-                <span className="text-xs font-semibold">{post.comments_count || comments.length}</span>
+                <MessageCircle className="w-6 h-6 group-hover:scale-110 transition-transform" />
+                <span className="text-xs font-bold font-mono">
+                  {formatCount(post.comments_count || comments.length)}
+                </span>
               </button>
 
-              {/* Share Story Card Button */}
-              <button
-                onClick={() => setShowShareModal(true)}
-                className="p-1 rounded-full text-white/80 hover:text-[#d4a853] transition-colors"
-                title="인스타 스토리 카드 생성"
+              {/* ③ Download / Dig Counter */}
+              <motion.button
+                whileTap={{ scale: 0.8 }}
+                onClick={handleDownload}
+                disabled={isDownloading}
+                className={`flex items-center gap-1.5 transition-colors group cursor-pointer ${
+                  isDownloaded ? 'text-green-400 font-bold' : 'text-white/80 hover:text-[#d4a853]'
+                }`}
+                title="24bit WAV 무손실 소장(다운로드)"
               >
-                <Share2 className="w-5 h-5" />
-              </button>
+                {isDownloaded ? (
+                  <Check className="w-6 h-6 text-green-400" />
+                ) : (
+                  <Download className={`w-6 h-6 group-hover:scale-110 transition-transform ${isDownloading ? 'animate-bounce' : ''}`} />
+                )}
+                <span className="text-xs font-bold font-mono">
+                  {formatCount(downloadsCount)}
+                </span>
+              </motion.button>
+
+              {/* ④ Share Counter */}
+              <motion.button
+                whileTap={{ scale: 0.8 }}
+                onClick={handleShare}
+                className="flex items-center gap-1.5 text-white/80 hover:text-[#d4a853] transition-colors group cursor-pointer"
+                title="인스타 스토리 카드 공유"
+              >
+                <Share2 className="w-5 h-5 group-hover:scale-110 transition-transform" />
+                <span className="text-xs font-bold font-mono">
+                  {formatCount(sharesCount)}
+                </span>
+              </motion.button>
             </div>
-
-            {/* Collect / Bookmark Button */}
-            <motion.button
-              whileTap={{ scale: 0.85 }}
-              onClick={handleCollect}
-              className={`flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium border transition-all ${
-                isCollected
-                  ? 'bg-[#d4a853]/20 border-[#d4a853] text-[#d4a853]'
-                  : 'bg-white/5 border-white/10 text-white/80 hover:bg-white/10'
-              }`}
-            >
-              <Bookmark className={`w-3.5 h-3.5 ${isCollected ? 'fill-current' : ''}`} />
-              {isCollected ? '소장됨' : '디깅 (소장)'}
-            </motion.button>
           </div>
 
           {/* ── 4. Track Info & Digger's Note ── */}
-          <div className="space-y-1.5">
+          <div className="space-y-1.5 pt-1">
             <div className="flex items-baseline gap-2">
               <h3 className="font-bold text-sm text-white hover:text-[#d4a853] transition-colors">
                 <Link href={`/track/${track.track_id}`}>{track.title}</Link>
@@ -374,71 +418,93 @@ export default function FeedPostCard({
               </p>
             )}
 
-            {/* Tags */}
+            {/* Hashtags */}
             {post.tags && post.tags.length > 0 && (
               <div className="flex flex-wrap gap-1.5 pt-1">
                 {post.tags.map((tag) => (
                   <span
                     key={tag}
-                    className="text-[11px] text-[#d4a853]/80 hover:text-[#d4a853] cursor-pointer"
+                    className="text-xs text-[#d4a853]/80 hover:text-[#d4a853] cursor-pointer"
                   >
                     #{tag}
                   </span>
                 ))}
               </div>
             )}
-          </div>
 
-          {/* ── 5. Comments Section ── */}
+            <div className="text-[10px] text-muted-foreground/60 font-mono pt-1">
+              {new Date(post.created_at).toLocaleDateString('ko-KR', {
+                year: 'numeric',
+                month: 'short',
+                day: 'numeric',
+              })}
+            </div>
+          </div>
+        </div>
+
+        {/* ── 5. Comments Section ── */}
+        <AnimatePresence>
           {showComments && (
-            <div className="mt-3 pt-3 border-t border-white/[0.06] space-y-2.5">
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              className="border-t border-white/5 bg-black/30 p-4 space-y-3"
+            >
               {loadingComments ? (
-                <p className="text-xs text-muted-foreground text-center py-2">댓글 불러오는 중...</p>
+                <div className="text-center py-4 text-xs text-muted-foreground">
+                  댓글을 불러오는 중...
+                </div>
               ) : comments.length === 0 ? (
-                <p className="text-xs text-muted-foreground text-center py-2">첫 번째 감상평을 남겨보세요!</p>
+                <div className="text-center py-3 text-xs text-muted-foreground">
+                  첫 번째 Digger 댓글을 남겨보세요!
+                </div>
               ) : (
-                <div className="space-y-2 max-h-48 overflow-y-auto pr-1 scrollbar-thin">
+                <div className="space-y-2.5 max-h-48 overflow-y-auto pr-1 scrollbar-thin">
                   {comments.map((c) => (
                     <div key={c.id} className="text-xs flex items-start gap-2">
-                      <span className="font-semibold text-white/90 shrink-0">
-                        @{c.user?.username || 'user'}:
+                      <span className="font-bold text-[#d4a853] shrink-0">
+                        @{c.user?.username || 'digger'}:
                       </span>
-                      <span className="text-white/70 leading-tight">{c.content}</span>
+                      <span className="text-white/80 leading-relaxed break-all">
+                        {c.content}
+                      </span>
                     </div>
                   ))}
                 </div>
               )}
 
               {/* Comment Input */}
-              <form onSubmit={handleAddComment} className="flex items-center gap-2 pt-1">
+              <form onSubmit={handleAddComment} className="flex gap-2 pt-2">
                 <input
                   type="text"
-                  placeholder="디깅 감상평 또는 코멘트 작성..."
+                  placeholder="댓글 달기..."
                   value={newComment}
                   onChange={(e) => setNewComment(e.target.value)}
-                  className="flex-1 bg-white/5 border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white placeholder:text-muted-foreground focus:outline-none focus:border-[#d4a853]"
+                  className="flex-1 bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder:text-muted-foreground outline-none focus:border-[#d4a853]/50"
                 />
                 <button
                   type="submit"
                   disabled={!newComment.trim()}
-                  className="p-1.5 rounded-lg bg-[#d4a853] text-black disabled:opacity-30 transition-opacity"
+                  className="px-3 py-2 rounded-xl bg-[#d4a853] text-black font-semibold text-xs disabled:opacity-40 hover:bg-[#b58c3f] transition-colors"
                 >
                   <Send className="w-3.5 h-3.5" />
                 </button>
               </form>
-            </div>
+            </motion.div>
           )}
-        </div>
-      </article>
+        </AnimatePresence>
+      </motion.article>
 
-      {/* Share Vinyl Card Modal */}
-      <ShareVinylCardModal
-        isOpen={showShareModal}
-        onClose={() => setShowShareModal(false)}
-        track={track}
-        user={user}
-        caption={post.caption}
-      />
+      {/* ── 6. 9:16 Instagram Story Card Modal ── */}
+      {showShareModal && (
+        <ShareVinylCardModal
+          isOpen={showShareModal}
+          onClose={() => setShowShareModal(false)}
+          track={track}
+          user={user}
+        />
+      )}
     </>
   );
 }

@@ -212,11 +212,14 @@ export interface Post {
   tags: string[];
   likes_count: number;
   comments_count: number;
+  shares_count?: number;
+  downloads_count?: number;
   created_at: string;
   user?: UserProfile;
   track?: Track;
   is_liked?: boolean;
 }
+
 
 export interface PostComment {
   id: string;

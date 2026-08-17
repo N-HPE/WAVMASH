@@ -328,8 +328,28 @@ CREATE TABLE IF NOT EXISTS public.posts (
     tags TEXT[] DEFAULT '{}',
     likes_count INTEGER DEFAULT 0,
     comments_count INTEGER DEFAULT 0,
+    shares_count INTEGER DEFAULT 0,
+    downloads_count INTEGER DEFAULT 0,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- Ensure columns exist if table was already created
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'posts' AND column_name = 'shares_count') THEN
+        ALTER TABLE public.posts ADD COLUMN shares_count INTEGER DEFAULT 0;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'posts' AND column_name = 'downloads_count') THEN
+        ALTER TABLE public.posts ADD COLUMN downloads_count INTEGER DEFAULT 0;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'tracks' AND column_name = 'shares_count') THEN
+        ALTER TABLE public.tracks ADD COLUMN shares_count INTEGER DEFAULT 0;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'tracks' AND column_name = 'likes_count') THEN
+        ALTER TABLE public.tracks ADD COLUMN likes_count INTEGER DEFAULT 0;
+    END IF;
+END $$;
+
 
 CREATE INDEX IF NOT EXISTS idx_posts_user ON public.posts(user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_posts_created ON public.posts(created_at DESC);

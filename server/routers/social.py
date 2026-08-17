@@ -663,6 +663,59 @@ async def toggle_post_like(
     return {"liked": liked, "likes_count": count}
 
 
+@router.post("/posts/{post_id}/share")
+async def share_post(
+    post_id: str,
+    user_id: str = Depends(get_current_user),
+):
+    """포스트 공유 카운트를 1 증가시키고 공유 활동을 기록합니다."""
+    if not is_supabase_enabled():
+        return {"shares_count": 1}
+
+    headers = get_headers()
+    # 1. 포스트 조회
+    p_resp = http_requests.get(
+        f"{_SUPABASE_URL}/rest/v1/posts",
+        headers=headers,
+        params={"id": f"eq.{post_id}", "select": "shares_count,track_id"},
+        timeout=5,
+    )
+    curr_shares = 0
+    track_id = ""
+    if p_resp.ok and p_resp.json():
+        curr_shares = p_resp.json()[0].get("shares_count") or 0
+        track_id = p_resp.json()[0].get("track_id") or ""
+
+    new_shares = curr_shares + 1
+    http_requests.patch(
+        f"{_SUPABASE_URL}/rest/v1/posts",
+        headers=headers,
+        params={"id": f"eq.{post_id}"},
+        json={"shares_count": new_shares},
+        timeout=5,
+    )
+
+    _create_activity(user_id, "shared_post", "post", post_id, {"track_id": track_id})
+
+    return {"shares_count": new_shares}
+
+
+@router.post("/tracks/{track_id}/share")
+async def share_track(
+    track_id: str,
+    user_id: str = Depends(get_current_user),
+):
+    """트랙 공유 카운트를 증가시키고 활동 피드에 공유 이벤트를 기록합니다."""
+    if not is_supabase_enabled():
+        return {"shares_count": 1}
+
+    headers = get_headers()
+    _create_activity(user_id, "shared_track", "track", track_id)
+
+    return {"message": "트랙이 공유되었습니다.", "success": True}
+
+
+
 @router.get("/posts/{post_id}/comments")
 async def get_post_comments(post_id: str):
     """포스트 댓글 목록을 조회합니다."""

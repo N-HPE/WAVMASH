@@ -427,6 +427,21 @@ class WaveMashAPI {
     );
   }
 
+  async sharePost(postId: string): Promise<{ shares_count: number }> {
+    return this.fetch<{ shares_count: number }>(
+      `/api/social/posts/${encodeURIComponent(postId)}/share`,
+      { method: 'POST' }
+    );
+  }
+
+  async shareTrack(trackId: string): Promise<{ message: string; success: boolean }> {
+    return this.fetch<{ message: string; success: boolean }>(
+      `/api/social/tracks/${encodeURIComponent(trackId)}/share`,
+      { method: 'POST' }
+    );
+  }
+
+
   async getPostComments(postId: string): Promise<import('./types').PostComment[]> {
     return this.fetch<import('./types').PostComment[]>(
       `/api/social/posts/${encodeURIComponent(postId)}/comments`

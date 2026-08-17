@@ -8,7 +8,8 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
-import { Music, Play, Pause, Heart } from 'lucide-react';
+import { Music, Play, Pause, Heart, Disc3 } from 'lucide-react';
+
 import api from '@/lib/api';
 import { useCoverGlow } from '@/lib/coverColors';
 import { usePlayer } from '@/contexts/PlayerContext';
@@ -169,7 +170,7 @@ export default function TrackCard({ track, index = 0 }: TrackCardProps) {
             </div>
           </div>
 
-          {/* ── Track Info ── */}
+          {/* ── Track Info & Metrics ── */}
           <div className="p-3 flex items-center justify-between gap-2">
             <Link href={`/track/${track.track_id}`} className="min-w-0 flex-1">
               <p className="truncate text-sm font-medium text-foreground group-hover:text-[#d4a853] transition-colors">
@@ -180,13 +181,22 @@ export default function TrackCard({ track, index = 0 }: TrackCardProps) {
               </p>
             </Link>
 
-            {likesCount > 0 && (
-              <span className="text-[10px] font-mono text-red-400 flex items-center gap-0.5 shrink-0">
-                <Heart className="w-2.5 h-2.5 fill-current" />
-                {likesCount}
-              </span>
-            )}
+            <div className="flex items-center gap-2 shrink-0 text-[10px] font-mono">
+              {likesCount > 0 && (
+                <span className="text-red-400 flex items-center gap-0.5" title={`좋아요 ${likesCount}개`}>
+                  <Heart className="w-2.5 h-2.5 fill-current" />
+                  {likesCount}
+                </span>
+              )}
+              {((track as any).collector_count > 0 || likesCount === 0) && (
+                <span className="text-[#d4a853]/80 flex items-center gap-0.5" title="소장 횟수">
+                  <Disc3 className="w-2.5 h-2.5" />
+                  {(track as any).collector_count || 1}
+                </span>
+              )}
+            </div>
           </div>
+
         </div>
       </div>
     </motion.div>
