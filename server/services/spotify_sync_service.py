@@ -248,25 +248,28 @@ def sync_single_playlist(config_id: str) -> dict[str, Any]:
                 library_records = archive_cache.reload()
 
         # 4. 로컬 플레이리스트 매핑 — Spotify 순서 유지, 파일 있는 곡만
-        matching_track_ids: list[str] = []
-        local_spotify_ids: list[str] = []
-        missing_ids: list[str] = []
-        for song in songs:
-            sid = str(getattr(song, "song_id", "") or "")
-            rec = spotify_pipeline.find_existing_record(library_records, song)
-            if rec and spotify_pipeline.record_has_file(rec):
-                tid = str(rec.get("track_id") or rec.get("id") or "")
-                if tid and tid not in matching_track_ids:
-                    matching_track_ids.append(tid)
-                if sid:
-                    local_spotify_ids.append(sid)
-            elif sid:
-                missing_ids.append(sid)
+        from server.services.spotify_match import map_spotify_songs_to_local, merge_missing_ids
 
-        # download 단계에서 보고한 missing과 합집합
-        for mid in missing_from_download:
-            if mid not in missing_ids:
-                missing_ids.append(mid)
+        song_dicts = [
+            {
+                "song_id": str(getattr(song, "song_id", "") or ""),
+                "name": str(getattr(song, "name", "") or ""),
+                "artist": str(getattr(song, "artist", "") or ""),
+            }
+            for song in songs
+        ]
+        mapped = map_spotify_songs_to_local(
+            song_dicts,
+            library_records,
+            require_file=True,
+            check_disk=True,
+        )
+        matching_track_ids = list(mapped["matching_track_ids"])
+        local_spotify_ids = list(mapped["local_spotify_ids"])
+        missing_ids = merge_missing_ids(
+            list(mapped["missing_ids"]),
+            list(missing_from_download),
+        )
 
         from server.vibe_palette import make_meta
 

@@ -2,35 +2,32 @@
 
 집에서 개발해 둔 걸 맥북으로 이어서 쓰는 최소 가이드입니다.
 
+**방향:** Spotify는 이전용 임시 툴이고, 이후에는 YouTube 검색·다운로드 + 로컬 스트리밍이 주 경로입니다.
+기기 간 목록 맞추기: [`LIBRARY_SYNC.md`](LIBRARY_SYNC.md)
+
 ---
 
-## 터미널에 뜬 “다운로드 21곡”은 뭐야?
+## 터미널에 뜬 “다운로드 N곡”은 뭐야?
 
-정상입니다. **에러가 아닙니다.**
-
-서버를 켜면 Spotify **자동 동기화**가 돌아갑니다.
+서버 시작 시 Spotify **마이그레이션 자동 동기화**가 돌 수 있습니다 (`WAVMASH_AUTO_SYNC_ON_START`).
 
 ```
 Spotify auto-sync starting (1 playlists)...
 Spotify auto-sync done — ok=1 downloaded=21 errors=0
 ```
 
-의미:
+이전이 끝났으면 `.env`에 `WAVMASH_AUTO_SYNC_ON_START=false` 로 끄세요.
 
 | 표시 | 의미 |
 |------|------|
-| `1 playlists` | 등록된 Spotify 동기화 플리 1개 |
-| `downloaded=21` | 이 PC에 없어서 **새로 받은 곡 21개** |
-| `errors=0` | 동기화 자체는 성공 |
-| `metadata enrich: No module named 'mik_metadata'` | Mixed In Key 연동 모듈이 없어 BPM을 MIK DB에서 못 읽음 → **GetSongBPM/로컬 분석으로 대체** (다운로드는 됨) |
-
-카페 맥에서도 서버를 켜면, Spotify에만 있고 맥에 없는 곡을 같은 방식으로 자동으로 받습니다.
+| `downloaded=N` | 이 PC에 없어서 새로 받은 곡 |
+| `metadata enrich: No module named 'mik_metadata'` | Mac에서 MIK 없음 → GetSongBPM/로컬 분석 폴백 (정상) |
 
 ---
 
-## 맥북에 필요한 것 (GitHub 말고)
+## 맥북에 필요한 것
 
-### 1) 필수 도구
+### 1) 도구
 ```bash
 brew install python@3.12 node ffmpeg git
 ```
@@ -44,58 +41,36 @@ chmod +x start_wavemash.sh scripts/setup_dev.sh
 ./scripts/setup_dev.sh
 ```
 
-### 3) API 키 (`.env`)
-집에서 쓰는 `.env`를 **USB / 암호 메모 / 1Password** 등으로 맥에 복사.
+### 3) `.env`
+- 마이그레이션 중: Spotify Client ID/Secret
+- 이후: YouTube만 쓰면 Spotify 키 불필요 (BPM 폴백용 GetSongBPM은 선택)
+- `WAVMASH_WAV_ROOT` = 클라우드 동기 WAV 폴더 권장
 
-꼭 필요한 것:
+### 4) WAV + 목록 동기
 
-- `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET`
-- (같게) `SPOTIPY_CLIENT_ID` / `SPOTIPY_CLIENT_SECRET`
-- (선택) `GETSONGBPM_API_KEY`
+**A. WAV만 클라우드 동기 + 메타 export/import (권장)**  
+1. Drive/OneDrive/Syncthing으로 WAV 폴더 공유  
+2. PC에서 `GET /api/library/export` → 맥에서 `POST /api/library/import`  
+자세한 내용: [`LIBRARY_SYNC.md`](LIBRARY_SYNC.md)
 
-```bash
-cp .env.example .env
-# 키 붙여넣기
-open -e .env
-```
-
-### 4) WAV 경로
-카페에서 옵션 둘 중 하나:
-
-**A. Spotify 동기화만 쓰기 (가장 간단)**  
-- 맥에 빈 로컬 폴더만 두고  
-- `WAVMASH_WAV_ROOT=~/Music/WaveMash`  
-- 서버 켜면 등록된 Spotify 플리가 **빠진 곡을 자동 다운로드**
-
-**B. Google Drive Mirror로 WAV 공유**  
-- Drive for desktop **Mirror**  
-- `.env`에 Drive 안 WAV 경로 지정  
-- (목록까지 맞추려면 `archive.json` / `playlists.json`도 같이 맞춰야 함 — 나중에)
-
-카페 Wi‑Fi만으로도 **A**면 충분합니다.
+**B. Spotify 마이그레이션으로 누락 곡만 받기**  
+- 아직 Spotify 구독이 있을 때만  
+- 서버 켜면 등록 플리의 빠진 곡 자동 다운로드
 
 ### 5) 실행
 ```bash
 ./start_wavemash.sh
 ```
-브라우저: http://localhost:3000
+http://localhost:3000
 
 ---
 
-## 집에서 맥 가기 전에 체크
+## 집에서 맥 가기 전
 
-1. [ ] GitHub `main` 최신 (`git push` 해둠)
-2. [ ] Spotify 동기화 플리 등록됨 (`spotify_sync.json`이 repo에 있음)
-3. [ ] `.env` 키를 맥에 옮길 방법 준비
-4. [ ] (선택) Google Drive Mirror 켜 두기 — 필수는 아님
-
----
-
-## 카페에서 안 해도 되는 것
-
-- Mixed In Key (Windows 전용에 가까움) → 없어도 BPM은 다른 경로로 채움  
-- 프로젝트 폴더 통째 Drive 업로드 → **하지 말 것** (venv/node 깨짐)  
-- MCP → WaveMash 실행과 무관  
+1. [ ] `git push`
+2. [ ] (마이그레이션 중) `spotify_sync.json` 등록됨
+3. [ ] 또는 `library/export` JSON을 맥으로 복사
+4. [ ] `.env` / WAV 경로 준비
 
 ---
 
@@ -103,9 +78,6 @@ open -e .env
 
 | 증상 | 조치 |
 |------|------|
-| Spotify 다운로드 실패 | `.env` 키 / 인터넷 확인 |
-| 서버만 되고 UI 안 됨 | `cd web && npm install && npm run dev` |
-| WAV 경로 이상 | `.env`의 `WAVMASH_WAV_ROOT` |
-| 자동동기화 끄기 | `.env`에 `WAVMASH_AUTO_SYNC_ON_START=false` |
-
-더 자세한 공통 설명은 루트 `README.md` 참고.
+| Spotify 다운로드 실패 | 키/인터넷, 또는 이미 이전이면 auto-sync 끄기 |
+| 목록만 안 맞음 | `/api/library/export` → `/import` |
+| UI 안 됨 | `cd web && npm install && npm run dev` |

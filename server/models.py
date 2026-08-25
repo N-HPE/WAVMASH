@@ -21,7 +21,7 @@ class Track(BaseModel):
     album: str = ""
     genre: str = ""
     year: str = ""
-    bpm: str = ""
+    bpm: float = 0.0
     key: str = ""
     camelot_key: str = ""
     energy_level: int = 0
@@ -36,6 +36,7 @@ class Track(BaseModel):
     has_file: bool = False
     dominant_color: str | None = None
     analysis: dict[str, Any] | None = None
+    missing: bool | None = None
 
 
 class TrackCreate(BaseModel):
@@ -58,7 +59,7 @@ class TrackUpdate(BaseModel):
     album: str | None = None
     genre: str | None = None
     year: str | None = None
-    bpm: str | None = None
+    bpm: float | str | None = None
     key: str | None = None
     energy_level: int | None = None
 
@@ -77,7 +78,7 @@ class Playlist(BaseModel):
     vibe: str = "other"
     shade: int = 0
     color: str = "#6D4C41"
-    # local = 수동/로컬 전용, spotify = 스포티파이 동기화 연동
+    # local = 수동/YouTube 수집, spotify = Spotify 마이그레이션으로 유입
     source: str = "local"
     spotify_url: str | None = None
     sync_id: str | None = None
@@ -154,6 +155,7 @@ class LibraryStats(BaseModel):
     total_tracks: int = 0
     total_artists: int = 0
     total_albums: int = 0
+    total_playlists: int = 0
     total_with_files: int = 0
     genres: dict[str, int] = Field(default_factory=dict)
     platforms: dict[str, int] = Field(default_factory=dict)
@@ -166,6 +168,7 @@ class ArtistInfo(BaseModel):
 
     name: str
     track_count: int = 0
+    albums: list[str] = Field(default_factory=list)
 
 
 class AlbumInfo(BaseModel):
@@ -174,7 +177,9 @@ class AlbumInfo(BaseModel):
     name: str
     artist: str = ""
     track_count: int = 0
+    year: str = ""
     has_cover: bool = False
+    track_ids: list[str] = Field(default_factory=list)
 
 
 class GenreInfo(BaseModel):
@@ -196,6 +201,72 @@ class AutoPlaylistRule(BaseModel):
     bpm_min: int | None = None
     bpm_max: int | None = None
     key_patterns: list[str] = Field(default_factory=list)
+
+
+class AutoParseResponse(BaseModel):
+    """자동 분류 결과 — FE/BE 계약 통일."""
+
+    created: dict[str, int] = Field(default_factory=dict)
+    playlists: list[Playlist] = Field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
+# 메타데이터 enrich
+# ---------------------------------------------------------------------------
+
+class BatchEnrichRequest(BaseModel):
+    """일괄 BPM/Key 보강 요청."""
+
+    track_ids: list[str] | None = None
+    only_missing: bool = True
+
+
+class BatchEnrichResponse(BaseModel):
+    """일괄 보강 결과."""
+
+    updated: int = 0
+    skipped: int = 0
+    failed: int = 0
+
+
+# ---------------------------------------------------------------------------
+# 기기 간 라이브러리 동기
+# ---------------------------------------------------------------------------
+
+class LibrarySyncStatus(BaseModel):
+    """현재 기기 archive/playlists 상태."""
+
+    archive_path: str
+    playlists_path: str
+    archive_track_count: int = 0
+    playlist_count: int = 0
+    archive_mtime: float | None = None
+    playlists_mtime: float | None = None
+    archive_sha256: str | None = None
+    playlists_sha256: str | None = None
+
+
+class LibraryImportRequest(BaseModel):
+    """라이브러리 번들 import 요청."""
+
+    version: int = 1
+    format: str | None = "wavemash-library-bundle"
+    archive: list[dict[str, Any]] | None = None
+    playlists: dict[str, Any] | None = None
+    mode: str = Field("merge", description="merge | replace")
+    import_archive: bool = True
+    import_playlists: bool = True
+
+
+class LibraryImportResponse(BaseModel):
+    """import 결과."""
+
+    success: bool = True
+    mode: str = "merge"
+    archive_added: int = 0
+    archive_updated: int = 0
+    playlist_count: int = 0
+    status: LibrarySyncStatus | None = None
 
 
 # ---------------------------------------------------------------------------
