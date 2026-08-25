@@ -18,14 +18,16 @@ export interface Track {
   platform: string;
   url: string;
   external_id?: string;
-  thumbnail_url: string;
-  local_path: string;
+  thumbnail_url?: string;
+  local_path?: string;
   has_cover: boolean;
   has_file: boolean;
   dominant_color?: string;
   format?: string;
   missing?: boolean;
 }
+
+
 
 export interface TrackUpdate {
   title?: string;
@@ -39,17 +41,21 @@ export interface TrackUpdate {
 }
 
 export interface Playlist {
+  id?: string;
   name: string;
+  title?: string;
+  description?: string;
+  is_public?: boolean;
   track_ids: string[];
   track_count: number;
   activity?: number | null;
   last_activity?: number | null;
   /** 바이브(장르) 카테고리: pop | rnb | hiphop | house | techno | bass | chill | other */
-  vibe: string;
+  vibe?: string;
   /** 같은 바이브 안 세부 톤 (0=코어/대중, 클수록 밝고 가벼움) */
-  shade: number;
+  shade?: number;
   /** 표시용 hex 색상 */
-  color: string;
+  color?: string;
   /**
    * local = 로컬/YouTube 수집
    * spotify = Spotify 마이그레이션(이전용)으로 들어온 플리
@@ -65,13 +71,18 @@ export interface Playlist {
   missing_count?: number | null;
 }
 
+
 export interface PlaylistCreate {
   name: string;
+  title?: string;
+  description?: string;
+  is_public?: boolean;
   track_ids?: string[];
   vibe?: string;
   shade?: number;
   color?: string;
 }
+
 
 export interface PlaylistUpdate {
   name?: string;
@@ -215,4 +226,74 @@ export interface SpotifySyncResult {
   status?: string;
   synced_at?: string;
   error?: string;
+}
+
+export interface UserProfile {
+  user_id: string;
+  username: string;
+  display_name: string;
+  bio: string;
+  avatar_url: string;
+  track_count: number;
+  friend_count: number;
+  is_public: boolean;
+  favorite_genre: string;
+}
+
+export interface ActivityItem {
+  id: string;
+  user_id: string;
+  action_type: string;
+  target_type: string;
+  target_id: string;
+  metadata: any;
+  created_at: string;
+  user?: UserProfile;
+}
+
+export interface ChartEntry {
+  track_id: string;
+  title: string;
+  artist: string;
+  album: string;
+  genre: string;
+  collector_count: number;
+  thumbnail_url: string;
+}
+
+export interface Post {
+  id: string;
+  user_id: string;
+  track_id?: string;
+  playlist_id?: string;
+  image_url?: string;
+  caption: string;
+  tags: string[];
+  visibility?: 'public' | 'private' | 'friends';
+  likes_count: number;
+  comments_count: number;
+  shares_count?: number;
+  downloads_count?: number;
+  created_at: string;
+  user?: UserProfile;
+  track?: Track;
+  is_liked?: boolean;
+}
+
+export interface PostComment {
+  id: string;
+  post_id: string;
+  user_id: string;
+  content: string;
+  created_at: string;
+  user?: UserProfile;
+}
+
+export interface HighlightItem {
+  id: string;
+  user_id: string;
+  title: string;
+  cover_url?: string;
+  track_ids: string[];
+  created_at: string;
 }

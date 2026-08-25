@@ -24,9 +24,14 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 class WaveMashAPI {
   private baseUrl: string;
+  private authToken: string | null = null;
 
   constructor(baseUrl: string = API_BASE) {
     this.baseUrl = baseUrl;
+  }
+
+  setAuthToken(token: string | null) {
+    this.authToken = token;
   }
 
   /* ── Generic Fetch Wrapper ── */
@@ -34,12 +39,18 @@ class WaveMashAPI {
   private async fetch<T>(path: string, options?: RequestInit): Promise<T> {
     const url = `${this.baseUrl}${path}`;
     try {
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        ...options?.headers as Record<string, string>,
+      };
+
+      if (this.authToken) {
+        headers['Authorization'] = `Bearer ${this.authToken}`;
+      }
+
       const res = await fetch(url, {
         ...options,
-        headers: {
-          'Content-Type': 'application/json',
-          ...options?.headers,
-        },
+        headers,
       });
 
       if (!res.ok) {
@@ -215,15 +226,27 @@ class WaveMashAPI {
     );
   }
 
-  async addTrackToPlaylist(name: string, trackId: string): Promise<void> {
-    return this.fetch<void>(
-      `/api/playlists/${encodeURIComponent(name)}/tracks`,
-      {
-        method: 'POST',
-        body: JSON.stringify({ track_id: trackId }),
-      }
-    );
+  async addTrackToPlaylist(
+    nameOrId: string,
+    trackId: string,
+    meta?: { title?: string; artist?: string; cover_url?: string }
+  ): Promise<any> {
+    const isSocial = nameOrId.includes('-') && nameOrId.length > 20;
+    const url = isSocial
+      ? `/api/social/playlists/${encodeURIComponent(nameOrId)}/tracks`
+      : `/api/playlists/${encodeURIComponent(nameOrId)}/tracks`;
+
+    return this.fetch<any>(url, {
+      method: 'POST',
+      body: JSON.stringify({
+        track_id: trackId,
+        title: meta?.title,
+        artist: meta?.artist,
+        cover_url: meta?.cover_url,
+      }),
+    });
   }
+
 
   async removeTrackFromPlaylist(
     name: string,
@@ -393,7 +416,217 @@ class WaveMashAPI {
   getStreamUrl(trackId: string): string {
     return `${this.baseUrl}/api/stream/${encodeURIComponent(trackId)}`;
   }
+
+  /* ── Social / Profile Endpoints ── */
+
+  async getProfile(username: string): Promise<import('./types').UserProfile> {
+    return this.fetch<import('./types').UserProfile>(`/api/users/${encodeURIComponent(username)}`);
+  }
+
+  async updateMyProfile(data: Partial<import('./types').UserProfile>): Promise<import('./types').UserProfile> {
+    return this.fetch<import('./types').UserProfile>('/api/users/me', {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async collectTrack(trackId: string): Promise<void> {
+    return this.fetch<void>(`/api/social/collect/${encodeURIComponent(trackId)}`, {
+      method: 'POST',
+    });
+  }
+
+  async uncollectTrack(trackId: string): Promise<void> {
+    return this.fetch<void>(`/api/social/collect/${encodeURIComponent(trackId)}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async getFeed(): Promise<import('./types').ActivityItem[]> {
+    return this.fetch<import('./types').ActivityItem[]>('/api/social/feed');
+  }
+
+  async getMostCollectedChart(): Promise<import('./types').ChartEntry[]> {
+    return this.fetch<import('./types').ChartEntry[]>('/api/social/charts/most-collected');
+  }
+
+  /* ── Instagram-Style Collection Feed & Posts Endpoints ── */
+
+  async getPosts(params?: {
+    user_id?: string;
+    username?: string;
+    tag?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<import('./types').Post[]> {
+    const qs = this.buildQueryString(params || {});
+    return this.fetch<import('./types').Post[]>(`/api/social/posts${qs}`);
+  }
+
+  async createPost(data: {
+    track_id?: string;
+    playlist_id?: string;
+    image_url?: string;
+    caption: string;
+    tags?: string[];
+    visibility?: 'public' | 'private' | 'friends';
+  }): Promise<import('./types').Post> {
+    return this.fetch<import('./types').Post>('/api/social/posts', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+
+
+
+  async deletePost(postId: string): Promise<void> {
+    return this.fetch<void>(`/api/social/posts/${encodeURIComponent(postId)}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async togglePostLike(postId: string): Promise<{ liked: boolean; likes_count: number }> {
+    return this.fetch<{ liked: boolean; likes_count: number }>(
+      `/api/social/posts/${encodeURIComponent(postId)}/like`,
+      { method: 'POST' }
+    );
+  }
+
+  async sharePost(postId: string): Promise<{ shares_count: number }> {
+    return this.fetch<{ shares_count: number }>(
+      `/api/social/posts/${encodeURIComponent(postId)}/share`,
+      { method: 'POST' }
+    );
+  }
+
+  async shareTrack(trackId: string): Promise<{ message: string; success: boolean }> {
+    return this.fetch<{ message: string; success: boolean }>(
+      `/api/social/tracks/${encodeURIComponent(trackId)}/share`,
+      { method: 'POST' }
+    );
+  }
+
+
+  async getPostComments(postId: string): Promise<import('./types').PostComment[]> {
+    return this.fetch<import('./types').PostComment[]>(
+      `/api/social/posts/${encodeURIComponent(postId)}/comments`
+    );
+  }
+
+  async addPostComment(postId: string, content: string): Promise<import('./types').PostComment> {
+    return this.fetch<import('./types').PostComment>(
+      `/api/social/posts/${encodeURIComponent(postId)}/comments`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ content }),
+      }
+    );
+  }
+
+  async getHighlights(userIdOrUsername?: string): Promise<import('./types').HighlightItem[]> {
+    const qs = userIdOrUsername ? `?user=${encodeURIComponent(userIdOrUsername)}` : '';
+    return this.fetch<import('./types').HighlightItem[]>(`/api/social/highlights${qs}`);
+  }
+
+  async createHighlight(data: {
+    title: string;
+    cover_url?: string;
+    track_ids: string[];
+  }): Promise<import('./types').HighlightItem> {
+    return this.fetch<import('./types').HighlightItem>('/api/social/highlights', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  /* ── Track Social Interactions & Friend Activity Feed ── */
+
+  async toggleTrackLike(
+    trackId: string,
+    meta?: { title?: string; artist?: string; cover_url?: string }
+  ): Promise<{ liked: boolean; likes_count: number }> {
+    return this.fetch<{ liked: boolean; likes_count: number }>(
+      `/api/social/tracks/${encodeURIComponent(trackId)}/like`,
+      {
+        method: 'POST',
+        body: JSON.stringify(meta || {}),
+      }
+    );
+  }
+
+  async recordTrackDownload(
+    trackId: string,
+    meta?: { title?: string; artist?: string; cover_url?: string }
+  ): Promise<{ message: string; success: boolean }> {
+    return this.fetch<{ message: string; success: boolean }>(
+      `/api/social/tracks/${encodeURIComponent(trackId)}/download-event`,
+      {
+        method: 'POST',
+        body: JSON.stringify(meta || {}),
+      }
+    );
+  }
+
+  async getTrackSocialStatus(
+    trackId: string
+  ): Promise<{ liked: boolean; likes_count: number; downloaded: boolean }> {
+    return this.fetch<{ liked: boolean; likes_count: number; downloaded: boolean }>(
+      `/api/social/tracks/${encodeURIComponent(trackId)}/status`
+    );
+  }
+
+  async getActivityFeed(): Promise<any[]> {
+    return this.fetch<any[]>('/api/social/feed');
+  }
+
+  async getUserLikedTracks(usernameOrId: string): Promise<any[]> {
+    return this.fetch<any[]>(`/api/social/users/${encodeURIComponent(usernameOrId)}/liked-tracks`);
+  }
+
+  async getUserDownloadedTracks(usernameOrId: string): Promise<any[]> {
+    return this.fetch<any[]>(`/api/social/users/${encodeURIComponent(usernameOrId)}/downloaded-tracks`);
+  }
+
+
+  /* ── User YouTube Database Persistence ── */
+
+  async syncUserYouTubePlaylists(
+    playlists: Array<{
+      id: string;
+      title: string;
+      description?: string;
+      thumbnailUrl?: string;
+      itemCount?: number;
+      tracks: Array<{
+        videoId: string;
+        rawTitle: string;
+        artist: string;
+        cleanTitle: string;
+        channelTitle?: string;
+        thumbnailUrl?: string;
+        duration?: string;
+      }>;
+    }>
+  ): Promise<{ message: string; success: boolean }> {
+    return this.fetch<{ message: string; success: boolean }>('/api/social/youtube/sync', {
+      method: 'POST',
+      body: JSON.stringify(playlists),
+    });
+  }
+
+  async getSavedYouTubePlaylists(userId?: string): Promise<any[]> {
+    const qs = userId ? `?user_id=${encodeURIComponent(userId)}` : '';
+    return this.fetch<any[]>(`/api/social/youtube/playlists${qs}`);
+  }
+
+  async getSavedYouTubePlaylistTracks(playlistId: string, userId?: string): Promise<any[]> {
+    const qs = userId ? `?user_id=${encodeURIComponent(userId)}` : '';
+    return this.fetch<any[]>(`/api/social/youtube/playlists/${encodeURIComponent(playlistId)}/tracks${qs}`);
+  }
 }
+
 
 export const api = new WaveMashAPI();
 export default api;
+

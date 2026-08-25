@@ -32,6 +32,7 @@ import {
 import PlaylistGrid from '@/components/PlaylistGrid';
 import PlaylistListByGenre from '@/components/PlaylistListByGenre';
 import SpotifySyncManager from '@/components/SpotifySyncManager';
+import YouTubeSyncManager from '@/components/YouTubeSyncManager';
 import PlaylistDetailPanel from '@/components/PlaylistDetailPanel';
 import { AnimatePresence } from 'framer-motion';
 
@@ -47,9 +48,10 @@ export default function PlaylistsPage() {
   const [creating, setCreating] = useState(false);
   const [autoParsing, setAutoParsing] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [showSync, setShowSync] = useState(false);
+  const [syncTab, setSyncTab] = useState<'local' | 'youtube' | 'spotify'>('local');
   const [viewMode, setViewMode] = useState<PlaylistViewMode>('list');
   const [selected, setSelected] = useState<Playlist | null>(null);
+
 
   useEffect(() => {
     try {
@@ -145,41 +147,69 @@ export default function PlaylistsPage() {
           )}
         </span>
         <div className="flex items-center gap-1 flex-wrap justify-end">
-          {!showSync && (
-            <div className="flex items-center gap-0.5 glass rounded-lg p-0.5">
-              <Button
-                variant={viewMode === 'block' ? 'secondary' : 'ghost'}
-                size="icon"
-                className="h-6 w-6"
-                title="블록 보기"
-                onClick={() => changeViewMode('block')}
-              >
-                <LayoutGrid className="h-3 w-3" />
-              </Button>
-              <Button
-                variant={viewMode === 'list' ? 'secondary' : 'ghost'}
-                size="icon"
-                className="h-6 w-6"
-                title="장르별 리스트"
-                onClick={() => changeViewMode('list')}
-              >
-                <List className="h-3 w-3" />
-              </Button>
-            </div>
-          )}
-          <button
-            type="button"
-            onClick={() => setShowSync(!showSync)}
-            className={`text-[10px] transition-colors px-2 py-1 cursor-pointer rounded ${
-              showSync
-                ? 'text-[#1DB954] bg-[#1DB954]/10'
-                : 'text-white/30 hover:text-white/60'
-            }`}
-          >
-            {showSync ? '플리 보기' : 'Spotify 동기화'}
-          </button>
-          {!showSync && (
+          {/* Sync Tabs (Local / YouTube / Spotify) */}
+
+          <div className="flex items-center gap-1 glass rounded-lg p-0.5 mr-2">
+            <button
+              type="button"
+              onClick={() => setSyncTab('local')}
+              className={`text-xs px-2.5 py-1 rounded-md transition-all font-medium cursor-pointer ${
+                syncTab === 'local'
+                  ? 'bg-[#d4a853] text-black font-bold shadow'
+                  : 'text-white/50 hover:text-white'
+              }`}
+            >
+              보관함 플리
+            </button>
+            <button
+              type="button"
+              onClick={() => setSyncTab('youtube')}
+              className={`text-xs px-2.5 py-1 rounded-md transition-all font-medium cursor-pointer flex items-center gap-1 ${
+                syncTab === 'youtube'
+                  ? 'bg-red-600 text-white font-bold shadow'
+                  : 'text-white/50 hover:text-white'
+              }`}
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
+              YouTube 플리 연동
+            </button>
+            <button
+              type="button"
+              onClick={() => setSyncTab('spotify')}
+              className={`text-xs px-2.5 py-1 rounded-md transition-all font-medium cursor-pointer flex items-center gap-1 ${
+                syncTab === 'spotify'
+                  ? 'bg-[#1DB954] text-black font-bold shadow'
+                  : 'text-white/50 hover:text-white'
+              }`}
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-[#1DB954]" />
+              Spotify 동기화
+            </button>
+          </div>
+
+          {syncTab === 'local' && (
             <>
+              <div className="flex items-center gap-0.5 glass rounded-lg p-0.5">
+                <Button
+                  variant={viewMode === 'block' ? 'secondary' : 'ghost'}
+                  size="icon"
+                  className="h-6 w-6"
+                  title="블록 보기"
+                  onClick={() => changeViewMode('block')}
+                >
+                  <LayoutGrid className="h-3 w-3" />
+                </Button>
+                <Button
+                  variant={viewMode === 'list' ? 'secondary' : 'ghost'}
+                  size="icon"
+                  className="h-6 w-6"
+                  title="장르별 리스트"
+                  onClick={() => changeViewMode('list')}
+                >
+                  <List className="h-3 w-3" />
+                </Button>
+              </div>
+
               <Button variant="outline" size="sm" onClick={handleAutoParse} disabled={autoParsing} className="gap-1 h-6 text-[10px] px-2">
                 {autoParsing ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <Sparkles className="h-2.5 w-2.5" />}
                 자동 분류
@@ -192,7 +222,7 @@ export default function PlaylistsPage() {
                   <DialogHeader><DialogTitle>새 로컬 플레이리스트</DialogTitle></DialogHeader>
                   <div className="space-y-4 pt-2">
                     <p className="text-[11px] text-white/40">
-                      로컬 전용 플리입니다. Spotify와 연동하려면 「Spotify 동기화」에서 링크를 등록하세요.
+                      로컬 전용 플리입니다. Spotify나 YouTube와 연동하려면 상단 탭에서 연동하세요.
                     </p>
                     <input
                       type="text"
@@ -272,7 +302,11 @@ export default function PlaylistsPage() {
       )}
 
       <div className="flex-1 min-h-0">
-        {showSync ? (
+        {syncTab === 'youtube' ? (
+          <div className="h-full overflow-y-auto max-w-5xl mx-auto pt-2 pb-6">
+            <YouTubeSyncManager />
+          </div>
+        ) : syncTab === 'spotify' ? (
           <div className="h-full overflow-y-auto max-w-4xl mx-auto pt-2 pb-6">
             <SpotifySyncManager onSyncComplete={fetchPlaylists} />
           </div>
@@ -302,6 +336,7 @@ export default function PlaylistsPage() {
           </div>
         )}
       </div>
+
     </div>
   );
 }

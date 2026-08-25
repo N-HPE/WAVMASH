@@ -270,6 +270,107 @@ class LibraryImportResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# 사용자 및 소셜 모델
+# ---------------------------------------------------------------------------
+
+class UserProfile(BaseModel):
+    """사용자 프로필 정보."""
+    user_id: str
+    username: str
+    display_name: str | None = None
+    bio: str | None = None
+    avatar_url: str | None = None
+    track_count: int = 0
+    friend_count: int = 0
+    created_at: str | None = None
+
+class UserProfileUpdate(BaseModel):
+    """사용자 프로필 업데이트."""
+    display_name: str | None = None
+    bio: str | None = None
+    favorite_genre: str | None = None
+
+class ActivityItem(BaseModel):
+    """소셜 활동 피드 항목."""
+    id: str
+    user_id: str
+    action_type: str
+    target_type: str
+    target_id: str
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    created_at: str
+
+class ChartEntry(BaseModel):
+    """차트 항목."""
+    track_id: str
+    title: str
+    artist: str
+    album: str | None = None
+    genre: str | None = None
+    collector_count: int = 0
+    thumbnail_url: str | None = None
+
+class PostCreate(BaseModel):
+    """인스타 피드 포스트 생성 (사진 + 음악/플리 매칭 다이어리)."""
+    track_id: str | None = None
+    playlist_id: str | None = None
+    image_url: str | None = None
+    caption: str = ""
+    tags: list[str] = Field(default_factory=list)
+    visibility: str = "public"  # 'public' | 'private' | 'friends'
+
+
+class PlaylistTrackAdd(BaseModel):
+    """플레이리스트에 트랙 추가 요청."""
+    track_id: str
+    title: str | None = None
+    artist: str | None = None
+    cover_url: str | None = None
+
+
+class PostCommentCreate(BaseModel):
+    """포스트 댓글 생성."""
+    content: str
+
+class HighlightCreate(BaseModel):
+    """스토리 큐레이션 하이라이트 생성."""
+    title: str
+    cover_url: str = ""
+    track_ids: list[str] = Field(default_factory=list)
+
+class UserYouTubeTrackItem(BaseModel):
+    videoId: str
+    rawTitle: str
+    artist: str
+    cleanTitle: str
+    channelTitle: str = ""
+    thumbnailUrl: str = ""
+    duration: str = ""
+
+class UserYouTubePlaylistSync(BaseModel):
+    id: str
+    title: str
+    description: str = ""
+    thumbnailUrl: str = ""
+    itemCount: int = 0
+    tracks: list[UserYouTubeTrackItem] = Field(default_factory=list)
+
+class TrackLikeActionReq(BaseModel):
+
+    title: str = "Unknown Title"
+    artist: str = "Unknown Artist"
+    cover_url: str = ""
+
+class TrackDownloadActionReq(BaseModel):
+    title: str = "Unknown Title"
+    artist: str = "Unknown Artist"
+    cover_url: str = ""
+
+
+
+
+
+# ---------------------------------------------------------------------------
 # 공통 응답 모델
 # ---------------------------------------------------------------------------
 

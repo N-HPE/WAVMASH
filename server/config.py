@@ -47,9 +47,16 @@ class Settings:
         "http://127.0.0.1:8080",
     ]
 
-    # 서버 설정
-    HOST: str = os.environ.get("WAVMASH_HOST", "127.0.0.1")
-    PORT: int = int(os.environ.get("WAVMASH_PORT", "8000"))
+    # Supabase 설정
+    SUPABASE_URL: str = os.environ.get("SUPABASE_URL", "").rstrip("/")
+    SUPABASE_KEY: str = os.environ.get("SUPABASE_KEY", "")
+    SUPABASE_SERVICE_ROLE_KEY: str = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
+    SUPABASE_JWT_SECRET: str = os.environ.get("SUPABASE_JWT_SECRET", "")
+
+
+    # 서버 설정 (Render의 PORT 및 0.0.0.0 자동 감지 지원)
+    HOST: str = os.environ.get("WAVMASH_HOST") or ("0.0.0.0" if os.environ.get("RENDER") else "127.0.0.1")
+    PORT: int = int(os.environ.get("PORT") or os.environ.get("WAVMASH_PORT", "8000"))
     DEBUG: bool = os.environ.get("WAVMASH_DEBUG", "false").lower() in ("1", "true", "yes")
     # 서버 시작 시 등록된 Spotify 동기화 플리 자동 실행 (맥/윈도우 로컬 차이 보정)
     AUTO_SYNC_ON_START: bool = os.environ.get(

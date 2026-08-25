@@ -5,8 +5,10 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import Navbar from '@/components/Navbar';
 import { PlayerProvider } from '@/contexts/PlayerContext';
 import { DownloadProvider } from '@/contexts/DownloadContext';
+import { AuthProvider } from '@/contexts/AuthContext';
 import MiniPlayer from '@/components/MiniPlayer';
 import DownloadProgressBar from '@/components/DownloadProgressBar';
+import MobileBottomNav from '@/components/MobileBottomNav';
 
 const inter = Inter({
   subsets: ['latin'],
@@ -14,10 +16,10 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: 'WaveMash — 프리미엄 음반 컬렉션',
+  title: 'WaveMash — 디거들의 바이닐 & 무손실 음악 쇼케이스',
   description:
-    '고품질 음악을 다운로드하고 관리하세요. YouTube와 Spotify에서 최고의 음질로 컬렉션을 구축합니다.',
-  keywords: ['음악', '컬렉션', '다운로드', 'YouTube', 'Spotify'],
+    '내가 소장한 명곡과 바이닐/WAV 컬렉션을 자랑하고, 친구들과 피드로 디깅하며 소통하는 인스타그램 감성의 음악 소셜 플랫폼.',
+  keywords: ['음악', '컬렉션', '바이닐', 'WAV', '디깅', '소셜', 'Lossless'],
 };
 
 export default function RootLayout({
@@ -38,17 +40,21 @@ export default function RootLayout({
         />
       </head>
       <body className="min-h-screen bg-background text-foreground font-sans antialiased">
-        <TooltipProvider delay={300}>
-          <PlayerProvider>
-            <DownloadProvider>
-              <Navbar />
-              <main className="pt-16 pb-28">{children}</main>
-              <DownloadProgressBar />
-              <MiniPlayer />
-            </DownloadProvider>
-          </PlayerProvider>
-        </TooltipProvider>
+        <AuthProvider>
+          <TooltipProvider delay={300}>
+            <PlayerProvider>
+              <DownloadProvider>
+                <Navbar />
+                <main className="pt-16 pb-28 sm:pb-24">{children}</main>
+                <DownloadProgressBar />
+                <MiniPlayer />
+                <MobileBottomNav />
+              </DownloadProvider>
+            </PlayerProvider>
+          </TooltipProvider>
+        </AuthProvider>
       </body>
     </html>
   );
 }
+

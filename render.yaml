@@ -1,0 +1,35 @@
+# ============================================================================
+# WaveMash Render Blueprint (Infrastructure as Code)
+# Shares Render account with PIXMASH while keeping all services isolated.
+# ============================================================================
+services:
+  # ── 1. WaveMash FastAPI Backend ───────────────────────────────────────────
+  - type: web
+    name: wavmash-backend
+    runtime: docker
+    dockerfilePath: docker/Dockerfile.backend
+    dockerContext: .
+    plan: free
+    region: oregon # or singapore / frankfurt
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      - key: WAVMASH_HOST
+        value: "0.0.0.0"
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: SPOTIFY_CLIENT_ID
+        sync: false
+      - key: SPOTIFY_CLIENT_SECRET
+        sync: false
+      - key: GETSONGBPM_API_KEY
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false
+

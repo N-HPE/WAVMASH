@@ -5,7 +5,7 @@
         "name": "T",
         "auto_sync_enabled": true,
         "sync_deletions": true,
-        "last_synced_at": "2026-08-01 13:23:56",
+        "last_synced_at": "2026-08-10 22:41:42",
         "track_count": 31,
         "synced_track_ids": [
             "7rgnKPJ51NBGP5k20yaSHn",
@@ -37,7 +37,7 @@
             "5eOX9mAXxkfWCq5LLVAIje",
             "3IrAZTFMsy9ZPj5LurJ8vi"
         ],
-        "status": "partial",
+        "status": "error",
         "local_count": 28,
         "missing_count": 3,
         "missing_ids": [

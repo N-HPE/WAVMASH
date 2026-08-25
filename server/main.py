@@ -34,6 +34,8 @@ from server.routers import (
     spotify_sync,
     stream,
     tracks,
+    users,
+    social,
 )
 
 # 기존 모듈
@@ -140,11 +142,22 @@ app.include_router(spotify_sync.router, prefix=api_prefix)
 app.include_router(covers.router, prefix=api_prefix)
 app.include_router(library.router, prefix=api_prefix)
 app.include_router(stream.router, prefix=api_prefix)
+app.include_router(users.router, prefix=api_prefix)
+app.include_router(social.router, prefix=api_prefix)
 
 
 # ---------------------------------------------------------------------------
-# 헬스 체크
+# 루트 및 헬스 체크
 # ---------------------------------------------------------------------------
+
+@app.get("/", tags=["시스템"])
+async def root() -> dict[str, str]:
+    """백엔드 API 루트 (프론트엔드 연결 전 테스트용)."""
+    return {
+        "message": "WaveMash API Server is running",
+        "docs_url": "/docs",
+        "health_check": "/health"
+    }
 
 @app.get("/health", tags=["시스템"])
 async def health_check() -> dict[str, str]:

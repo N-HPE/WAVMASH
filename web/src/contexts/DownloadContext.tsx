@@ -74,7 +74,19 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
           setCompletedTracks(tracks);
           setActive(false);
           cleanupRef.current = null;
+
+          // 친구 피드 및 소셜 활동에 다운로드 이벤트 자동 전파
+          tracks.forEach((t) => {
+            api
+              .recordTrackDownload(t.track_id, {
+                title: t.title,
+                artist: t.artist,
+                cover_url: api.getCoverUrl(t.track_id, 320),
+              })
+              .catch(() => {});
+          });
         }
+
 
         if (data.status === 'failed') {
           setError(data.error || data.message || '알 수 없는 오류가 발생했습니다.');

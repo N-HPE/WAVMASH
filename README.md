@@ -32,8 +32,12 @@ YouTube에서 곡을 검색·다운로드하고, BPM·Key·커버까지 정리�
 
 ```bash
 brew install python@3.12 node ffmpeg git
-git clone https://github.com/N-HPE/Wavemash.git
-cd Wavemash
+
+# 2) 클론
+git clone https://github.com/N-HPE/WAVMASH.git
+cd WAVMASH
+
+# 3) 의존성 + .env + WAV 폴더
 chmod +x start_wavemash.sh scripts/setup_dev.sh
 ./scripts/setup_dev.sh
 open -e .env

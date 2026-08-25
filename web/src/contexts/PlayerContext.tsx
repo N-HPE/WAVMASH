@@ -1,10 +1,11 @@
 'use client';
 
 /* ──────────────────────────────────────────────
-   WaveMash — Player Context
+   WaveMash — Player Context (Hybrid Local & YouTube Audio Engine)
+   앨범 커버 클릭 시 서버 파일 및 YouTube 오디오를 배경에서 자동 스트리밍
    ────────────────────────────────────────────── */
 
-import {
+import React, {
   createContext,
   useContext,
   useRef,
@@ -16,17 +17,29 @@ import {
 import type { Track } from '@/lib/types';
 import api from '@/lib/api';
 
+/* ── YouTube Video ID Extractor ── */
+export function extractYoutubeId(urlOrId?: string): string | null {
+  if (!urlOrId) return null;
+  // If already 11-char ID
+  if (/^[a-zA-Z0-9_-]{11}$/.test(urlOrId)) return urlOrId;
+  const match = urlOrId.match(
+    /(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([\w-]{11})/
+  );
+  return match ? match[1] : null;
+}
+
 /* ── Types ── */
 
 interface PlayerState {
   currentTrack: Track | null;
   isPlaying: boolean;
-  progress: number;       // 0–100
-  duration: number;       // seconds
-  currentTime: number;    // seconds
-  volume: number;         // 0–1
+  progress: number; // 0–100
+  duration: number; // seconds
+  currentTime: number; // seconds
+  volume: number; // 0–1
   queue: Track[];
   queueIndex: number;
+  engine: 'audio' | 'youtube' | 'idle';
 }
 
 interface PlayerContextValue extends PlayerState {
@@ -45,8 +58,18 @@ const PlayerContext = createContext<PlayerContextValue | null>(null);
 
 /* ── Provider ── */
 
+declare global {
+  interface Window {
+    YT: any;
+    onYouTubeIframeAPIReady: () => void;
+  }
+}
+
 export function PlayerProvider({ children }: { children: ReactNode }) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const ytPlayerRef = useRef<any>(null);
+  const isYtReadyRef = useRef(false);
+  const tickerRef = useRef<NodeJS.Timeout | null>(null);
 
   const [state, setState] = useState<PlayerState>({
     currentTrack: null,
@@ -57,53 +80,208 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     volume: 0.8,
     queue: [],
     queueIndex: -1,
+    engine: 'idle',
   });
 
-  // Lazily create the Audio element (client-side only)
+  // 1. YouTube IFrame API Script Loader
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    if (!window.YT) {
+      const tag = document.createElement('script');
+      tag.src = 'https://www.youtube.com/iframe_api';
+      const firstScriptTag = document.getElementsByTagName('script')[0];
+      firstScriptTag?.parentNode?.insertBefore(tag, firstScriptTag);
+
+      window.onYouTubeIframeAPIReady = () => {
+        initYtPlayer();
+      };
+    } else if (window.YT && window.YT.Player) {
+      initYtPlayer();
+    }
+
+    function initYtPlayer() {
+      if (ytPlayerRef.current) return;
+      try {
+        ytPlayerRef.current = new window.YT.Player('wavemash-hidden-yt-player', {
+          height: '1',
+          width: '1',
+          playerVars: {
+            playsinline: 1,
+            controls: 0,
+            disablekb: 1,
+            fs: 0,
+            rel: 0,
+            origin: window.location.origin,
+          },
+          events: {
+            onReady: () => {
+              isYtReadyRef.current = true;
+              if (ytPlayerRef.current?.setVolume) {
+                ytPlayerRef.current.setVolume(state.volume * 100);
+              }
+            },
+            onStateChange: (event: any) => {
+              // 1: PLAYING, 2: PAUSED, 0: ENDED
+              if (event.data === 1) {
+                setState((prev) => ({ ...prev, isPlaying: true }));
+              } else if (event.data === 2) {
+                setState((prev) => ({ ...prev, isPlaying: false }));
+              } else if (event.data === 0) {
+                // Auto next
+                setState((prev) => {
+                  const { queue, queueIndex } = prev;
+                  if (queue.length > 1) {
+                    const nextIdx = (queueIndex + 1) % queue.length;
+                    setTimeout(() => play(queue[nextIdx], queue), 0);
+                  }
+                  return { ...prev, isPlaying: false };
+                });
+              }
+            },
+            onError: (e: any) => {
+              console.warn('YouTube Player error:', e);
+              setState((prev) => ({ ...prev, isPlaying: false }));
+            },
+          },
+        });
+      } catch (e) {
+        console.warn('Failed to init YT player:', e);
+      }
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 2. Lazily create standard HTML5 Audio Element
   const getAudio = useCallback(() => {
     if (!audioRef.current && typeof window !== 'undefined') {
       audioRef.current = new Audio();
       audioRef.current.volume = state.volume;
     }
     return audioRef.current;
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [state.volume]);
+
+  // 3. Playback Progress Ticker (both Audio & YouTube)
+  useEffect(() => {
+    if (state.isPlaying) {
+      tickerRef.current = setInterval(() => {
+        if (state.engine === 'youtube' && ytPlayerRef.current?.getCurrentTime) {
+          try {
+            const cur = ytPlayerRef.current.getCurrentTime() || 0;
+            const dur = ytPlayerRef.current.getDuration() || 0;
+            setState((prev) => ({
+              ...prev,
+              currentTime: cur,
+              duration: dur,
+              progress: dur > 0 ? (cur / dur) * 100 : 0,
+            }));
+          } catch {}
+        } else if (state.engine === 'audio' && audioRef.current) {
+          const cur = audioRef.current.currentTime || 0;
+          const dur = audioRef.current.duration || 0;
+          setState((prev) => ({
+            ...prev,
+            currentTime: cur,
+            duration: dur,
+            progress: dur > 0 ? (cur / dur) * 100 : 0,
+          }));
+        }
+      }, 500);
+    } else {
+      if (tickerRef.current) clearInterval(tickerRef.current);
+    }
+
+    return () => {
+      if (tickerRef.current) clearInterval(tickerRef.current);
+    };
+  }, [state.isPlaying, state.engine]);
 
   /* ── Playback Controls ── */
 
   const play = useCallback(
     (track: Track, queue?: Track[]) => {
-      const audio = getAudio();
-      if (!audio) return;
-
-      const streamUrl = api.getStreamUrl(track.track_id);
-      audio.src = streamUrl;
-      audio.play().catch(() => {});
-
       const newQueue = queue || [track];
       const idx = newQueue.findIndex((t) => t.track_id === track.track_id);
+      const ytId = extractYoutubeId(track.url || track.external_id || track.track_id);
 
-      setState((prev) => ({
-        ...prev,
-        currentTrack: track,
-        isPlaying: true,
-        progress: 0,
-        currentTime: 0,
-        queue: newQueue,
-        queueIndex: idx >= 0 ? idx : 0,
-      }));
+      // A. 만약 로컬 서버에 파일이 있거나, 유튜브 ID가 없는 경우 -> Audio 태그 사용
+      if (track.has_file || !ytId) {
+        if (ytPlayerRef.current?.pauseVideo) {
+          try {
+            ytPlayerRef.current.pauseVideo();
+          } catch {}
+        }
+
+        const audio = getAudio();
+        if (audio) {
+          audio.src = api.getStreamUrl(track.track_id);
+          audio.play().catch(() => {});
+        }
+
+        setState((prev) => ({
+          ...prev,
+          currentTrack: track,
+          isPlaying: true,
+          progress: 0,
+          currentTime: 0,
+          queue: newQueue,
+          queueIndex: idx >= 0 ? idx : 0,
+          engine: 'audio',
+        }));
+      }
+      // B. 유튜브 기반 트랙인 경우 -> Background YouTube Player로 즉시 오디오 스트리밍
+      else {
+        if (audioRef.current) {
+          audioRef.current.pause();
+        }
+
+        if (ytPlayerRef.current?.loadVideoById) {
+          try {
+            ytPlayerRef.current.loadVideoById({
+              videoId: ytId,
+              startSeconds: 0,
+            });
+            ytPlayerRef.current.playVideo();
+          } catch (err) {
+            console.warn('YT loadVideoById failed:', err);
+          }
+        }
+
+        setState((prev) => ({
+          ...prev,
+          currentTrack: track,
+          isPlaying: true,
+          progress: 0,
+          currentTime: 0,
+          queue: newQueue,
+          queueIndex: idx >= 0 ? idx : 0,
+          engine: 'youtube',
+        }));
+      }
     },
     [getAudio]
   );
 
   const pause = useCallback(() => {
-    getAudio()?.pause();
+    if (state.engine === 'youtube') {
+      try {
+        ytPlayerRef.current?.pauseVideo();
+      } catch {}
+    } else {
+      audioRef.current?.pause();
+    }
     setState((prev) => ({ ...prev, isPlaying: false }));
-  }, [getAudio]);
+  }, [state.engine]);
 
   const resume = useCallback(() => {
-    getAudio()?.play().catch(() => {});
+    if (state.engine === 'youtube') {
+      try {
+        ytPlayerRef.current?.playVideo();
+      } catch {}
+    } else {
+      audioRef.current?.play().catch(() => {});
+    }
     setState((prev) => ({ ...prev, isPlaying: true }));
-  }, [getAudio]);
+  }, [state.engine]);
 
   const togglePlay = useCallback(() => {
     if (state.isPlaying) {
@@ -127,23 +305,34 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     play(queue[prevIdx], queue);
   }, [state, play]);
 
-  const setVolume = useCallback(
-    (v: number) => {
-      const clamped = Math.max(0, Math.min(1, v));
-      const audio = getAudio();
-      if (audio) audio.volume = clamped;
-      setState((prev) => ({ ...prev, volume: clamped }));
-    },
-    [getAudio]
-  );
+  const setVolume = useCallback((v: number) => {
+    const clamped = Math.max(0, Math.min(1, v));
+    if (audioRef.current) audioRef.current.volume = clamped;
+    try {
+      if (ytPlayerRef.current?.setVolume) {
+        ytPlayerRef.current.setVolume(clamped * 100);
+      }
+    } catch {}
+    setState((prev) => ({ ...prev, volume: clamped }));
+  }, []);
 
   const seekTo = useCallback(
     (percent: number) => {
-      const audio = getAudio();
-      if (!audio || !audio.duration) return;
-      audio.currentTime = (percent / 100) * audio.duration;
+      const targetSec = (percent / 100) * state.duration;
+      if (state.engine === 'youtube') {
+        try {
+          ytPlayerRef.current?.seekTo(targetSec, true);
+        } catch {}
+      } else if (audioRef.current) {
+        audioRef.current.currentTime = targetSec;
+      }
+      setState((prev) => ({
+        ...prev,
+        progress: percent,
+        currentTime: targetSec,
+      }));
     },
-    [getAudio]
+    [state.duration, state.engine]
   );
 
   const addToQueue = useCallback((track: Track) => {
@@ -152,63 +341,6 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       queue: [...prev.queue, track],
     }));
   }, []);
-
-  /* ── Audio Event Listeners ── */
-
-  useEffect(() => {
-    const audio = getAudio();
-    if (!audio) return;
-
-    const onTimeUpdate = () => {
-      const dur = audio.duration || 0;
-      const cur = audio.currentTime || 0;
-      setState((prev) => ({
-        ...prev,
-        currentTime: cur,
-        duration: dur,
-        progress: dur > 0 ? (cur / dur) * 100 : 0,
-      }));
-    };
-
-    const onEnded = () => {
-      // Auto-play next
-      setState((prev) => {
-        const { queue, queueIndex } = prev;
-        if (queue.length > 1) {
-          const nextIdx = (queueIndex + 1) % queue.length;
-          // Schedule next track play
-          setTimeout(() => play(queue[nextIdx], queue), 0);
-        }
-        return { ...prev, isPlaying: false };
-      });
-    };
-
-    const onLoadedMetadata = () => {
-      setState((prev) => ({
-        ...prev,
-        duration: audio.duration || 0,
-      }));
-    };
-
-    const onError = (e: Event) => {
-      console.error('Audio playback error:', e);
-      setState((prev) => ({ ...prev, isPlaying: false }));
-    };
-
-    audio.addEventListener('timeupdate', onTimeUpdate);
-    audio.addEventListener('ended', onEnded);
-    audio.addEventListener('loadedmetadata', onLoadedMetadata);
-    audio.addEventListener('error', onError);
-
-    return () => {
-      audio.removeEventListener('timeupdate', onTimeUpdate);
-      audio.removeEventListener('ended', onEnded);
-      audio.removeEventListener('loadedmetadata', onLoadedMetadata);
-      audio.removeEventListener('error', onError);
-    };
-  }, [getAudio, play]);
-
-  /* ── Context Value ── */
 
   const value: PlayerContextValue = {
     ...state,
@@ -224,7 +356,16 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <PlayerContext.Provider value={value}>{children}</PlayerContext.Provider>
+    <PlayerContext.Provider value={value}>
+      {children}
+      {/* ── Background Hidden YouTube Audio Player ── */}
+      <div
+        id="wavemash-hidden-yt-player-container"
+        className="fixed -bottom-10 -right-10 pointer-events-none opacity-0 overflow-hidden w-1 h-1 z-[-1]"
+      >
+        <div id="wavemash-hidden-yt-player" />
+      </div>
+    </PlayerContext.Provider>
   );
 }
 
