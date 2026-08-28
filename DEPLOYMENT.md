@@ -1,46 +1,64 @@
-# WaveMash Deployment
+# WaveMash Deployment Pipeline
 
-## Architecture
+## Flow (automatic)
 
-| Component | Platform | Auto-deploy trigger |
-|-----------|----------|---------------------|
-| Backend (FastAPI) | [Render](https://dashboard.render.com) | Push to `main` |
-| Frontend (Next.js) | [Vercel](https://vercel.com) | Push to `main` |
-| Database / Auth | [Supabase](https://supabase.com/dashboard) | Manual migrations |
+```
+git push origin main
+        │
+        ├─► Vercel  (GitHub integration)  → https://wavmash.vercel.app
+        ├─► Render  (autoDeploy: commit)  → https://wavmash-backend.onrender.com
+        └─► GitHub Actions
+              1) frontend-build
+              2) post-deploy-smoke  (poll /health + frontend until live)
+```
 
-## Vercel (Frontend)
+After Actions is **green**, hard-refresh the site — that deploy is live.
 
-1. Import GitHub repo `N-HPE/WAVMASH` (or `Wavemash`) in Vercel
-2. Set **Root Directory** to `web`
-3. Add environment variables:
+| Component | Platform | Trigger | URL |
+|-----------|----------|---------|-----|
+| Frontend | Vercel | Push `main` | https://wavmash.vercel.app |
+| Backend | Render | Push `main` | https://wavmash-backend.onrender.com |
+| Auth / DB | Supabase | Manual migrations | Project `WAVMASH` |
+
+## One-time setup checklist
+
+### Vercel
+1. Project linked to `N-HPE/WAVMASH`
+2. **Root Directory** = `web`
+3. Production Branch = `main`
+4. Env (Production + Preview):
 
 | Variable | Value |
 |----------|-------|
 | `NEXT_PUBLIC_API_URL` | `https://wavmash-backend.onrender.com` |
-| `NEXT_PUBLIC_SUPABASE_URL` | `https://rmnlckdjplratsqhccxk.supabase.co` |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase Dashboard → Settings → API → anon key |
+| `NEXT_PUBLIC_SUPABASE_URL` | your Supabase URL |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | your anon key |
 
-4. Deploy — every push to `main` triggers a new Vercel build
+### Render (`wavmash-backend`)
+- Auto-Deploy = **On** (commit / `main`)
+- Secrets: `SUPABASE_*`, `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET`
+- `CORS_ORIGINS` includes `https://wavmash.vercel.app` (also in `render.yaml` default)
 
-## Render (Backend)
+### Supabase Auth
+- Site URL: `https://wavmash.vercel.app`
+- Redirect URLs: `https://wavmash.vercel.app/**`, `http://localhost:3000/**`
 
-Backend service `wavmash-backend` watches `main` with `autoDeploy: true`.
+### GitHub Actions (optional secret)
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY` — only needed so CI build matches prod; a placeholder works for compile-only.
 
-Required env vars (Render Dashboard → wavmash-backend → Environment):
+## Monitor
 
-- `SUPABASE_URL`
-- `SUPABASE_KEY` / `SUPABASE_SERVICE_ROLE_KEY`
-- `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET`
-- `CORS_ORIGINS` — include your Vercel domain (e.g. `https://wavmash.vercel.app`)
+- Actions: https://github.com/N-HPE/WAVMASH/actions
+- Render: https://dashboard.render.com → `wavmash-backend` → Events
+- Vercel: https://vercel.com → Project → Deployments
+- Live health: https://wavmash-backend.onrender.com/health
 
-## Local development
+## Local
 
 ```bash
 # Backend
-cd server && uvicorn main:app --reload
+python -m uvicorn server.main:app --host 0.0.0.0 --port 8000 --reload
 
 # Frontend
-cd web && npm run dev
+npm --prefix web run dev
 ```
-
-Copy `web/.env.local.example` to `web/.env.local` and fill in values.

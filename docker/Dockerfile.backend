@@ -20,7 +20,7 @@ COPY requirements.txt /app/requirements.txt
 
 # Install backend Python requirements (with retries for PyPI network issues)
 RUN pip install --no-cache-dir --retries 10 --default-timeout 100 -r /app/server/requirements.txt && \
-    pip install --no-cache-dir --retries 10 --default-timeout 100 requests mutagen soundfile pydantic pydantic-settings yt-dlp ffmpeg-python librosa audioflux static_ffmpeg
+    pip install --no-cache-dir --retries 10 --default-timeout 100 requests mutagen soundfile pydantic pydantic-settings yt-dlp ffmpeg-python librosa audioflux static_ffmpeg spotipy
 
 # Copy codebase
 COPY . /app

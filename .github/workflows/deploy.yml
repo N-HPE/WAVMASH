@@ -1,0 +1,105 @@
+# WaveMash — main 푸시 시 프론트 빌드 검증 + 배포 후 헬스 모니터링
+name: Deploy Pipeline
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-main
+  cancel-in-progress: true
+
+env:
+  FRONTEND_URL: https://wavmash.vercel.app
+  BACKEND_URL: https://wavmash-backend.onrender.com
+
+jobs:
+  # ── 1. Frontend typecheck / build (blocks bad code from looking "done") ──
+  frontend-build:
+    name: Frontend build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npm run build
+        env:
+          NEXT_PUBLIC_API_URL: ${{ env.BACKEND_URL }}
+          NEXT_PUBLIC_SUPABASE_URL: https://rmnlckdjplratsqhccxk.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder' }}
+
+  # ── 2. Wait for Render + Vercel auto-deploys, then smoke-test live URLs ──
+  post-deploy-smoke:
+    name: Live smoke (Vercel + Render)
+    needs: frontend-build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Wait for Render backend /health
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Waiting for ${BACKEND_URL}/health ..."
+          for i in $(seq 1 60); do
+            code=$(curl -s -o /tmp/wm-health.json -w "%{http_code}" "${BACKEND_URL}/health" || true)
+            body=$(cat /tmp/wm-health.json 2>/dev/null || true)
+            echo "[$i] HTTP $code  $body"
+            if [ "$code" = "200" ] && echo "$body" | grep -qi 'ok'; then
+              echo "Render backend is live."
+              exit 0
+            fi
+            sleep 15
+          done
+          echo "Render health check timed out (free tier may still be cold-starting)."
+          exit 1
+
+      - name: Wait for Vercel frontend
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Waiting for ${FRONTEND_URL} ..."
+          for i in $(seq 1 40); do
+            code=$(curl -s -o /tmp/wm-front.html -w "%{http_code}" "${FRONTEND_URL}/" || true)
+            echo "[$i] HTTP $code"
+            if [ "$code" = "200" ]; then
+              if grep -qi 'WAVMASH\|WaveMash\|음원\|다운로드\|검색' /tmp/wm-front.html; then
+                echo "Vercel frontend is live."
+                exit 0
+              fi
+              echo "200 but unexpected HTML — retrying..."
+            fi
+            sleep 15
+          done
+          echo "Vercel frontend check timed out."
+          exit 1
+
+      - name: Smoke API catalog route
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Catalog may 503 without Spotify creds — treat 200/400/503 as "API up"
+          code=$(curl -s -o /tmp/wm-catalog.json -w "%{http_code}" \
+            "${BACKEND_URL}/api/catalog/search?q=test" || true)
+          echo "catalog search HTTP $code"
+          cat /tmp/wm-catalog.json || true
+          case "$code" in
+            200|400|422|503) echo "Catalog route reachable." ;;
+            *) echo "Unexpected catalog status"; exit 1 ;;
+          esac
+
+      - name: Summary
+        run: |
+          echo "## WaveMash live endpoints" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Frontend: ${FRONTEND_URL}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Backend health: ${BACKEND_URL}/health" >> "$GITHUB_STEP_SUMMARY"
+          echo "- API docs: ${BACKEND_URL}/docs" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Refresh the site after this job is green." >> "$GITHUB_STEP_SUMMARY"
