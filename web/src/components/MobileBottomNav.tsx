@@ -10,6 +10,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Flame, Compass, Library, Disc3, User } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
+import { getProfileHref } from '@/lib/profile';
 
 export default function MobileBottomNav() {
   const pathname = usePathname();
@@ -19,7 +20,7 @@ export default function MobileBottomNav() {
     return null;
   }
 
-  const profileHref = user ? `/profile/${profile?.username || user.id}` : '/login';
+  const profileHref = getProfileHref(user, profile);
 
   const NAV_BUTTONS = [
     { label: '홈', href: '/', icon: Flame },

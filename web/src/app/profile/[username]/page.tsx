@@ -30,6 +30,7 @@ import {
 import api from '@/lib/api';
 import { usePlayer } from '@/contexts/PlayerContext';
 import { useAuth } from '@/contexts/AuthContext';
+import { isOwnProfileSegment } from '@/lib/profile';
 import type { UserProfile, Track, Post, HighlightItem } from '@/lib/types';
 import FeedPostCard from '@/components/FeedPostCard';
 import NowSpinningWidget from '@/components/NowSpinningWidget';
@@ -41,7 +42,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 export default function InstagramProfilePage() {
   const params = useParams();
   const username = params.username as string;
-  const { user: currentUser } = useAuth();
+  const { user: currentUser, profile: authProfile } = useAuth();
   const { currentTrack, isPlaying, play, togglePlay } = usePlayer();
 
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -56,67 +57,68 @@ export default function InstagramProfilePage() {
   const [shareTrack, setShareTrack] = useState<Track | null>(null);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
 
-  const isMyProfile = Boolean(currentUser && (currentUser.email?.includes(username) || profile?.username === username));
+  const isMyProfile = isOwnProfileSegment(username, currentUser, authProfile);
 
   useEffect(() => {
     async function loadProfileData() {
+      if (!username) return;
       setLoading(true);
+      setError(null);
+
       try {
-        const [profRes, tracksRes, postsRes, hlRes, likesRes, dlRes] = await Promise.allSettled([
-          api.getProfile(username),
+        let prof: UserProfile | null = null;
+
+        if (isMyProfile && currentUser) {
+          try {
+            prof = await api.getMyProfile();
+          } catch {
+            if (authProfile) prof = authProfile;
+          }
+        } else {
+          try {
+            prof = await api.getProfile(username);
+          } catch {
+            prof = null;
+          }
+        }
+
+        if (!prof && authProfile && (username === authProfile.username || isMyProfile)) {
+          prof = authProfile;
+        }
+
+        if (!prof) {
+          setError('프로필을 찾을 수 없습니다.');
+          setProfile(null);
+          setLoading(false);
+          return;
+        }
+
+        setProfile(prof);
+        const lookupKey = prof.username || username;
+
+        const [tracksRes, postsRes, hlRes, likesRes, dlRes] = await Promise.allSettled([
           api.getTracks({ limit: 40 }),
-          api.getPosts({ username }),
-          api.getHighlights(username),
-          api.getUserLikedTracks(username),
-          api.getUserDownloadedTracks(username),
+          api.getPosts({ username: lookupKey }),
+          api.getHighlights(lookupKey),
+          api.getUserLikedTracks(lookupKey),
+          api.getUserDownloadedTracks(lookupKey),
         ]);
 
-        if (profRes.status === 'fulfilled') {
-          setProfile(profRes.value);
-        } else {
-          setProfile({
-            user_id: 'user-1',
-            username: username,
-            display_name: username.toUpperCase(),
-            bio: '나만의 감성 사진과 좋아하는 음악을 기록하는 프라이빗 아카이브',
-            avatar_url: '',
-            track_count: 28,
-            friend_count: 54,
-            is_public: true,
-            favorite_genre: 'House',
-          });
-        }
-
-        if (tracksRes.status === 'fulfilled') {
-          setTracks(tracksRes.value);
-        }
-
-        if (postsRes.status === 'fulfilled') {
-          setPosts(postsRes.value);
-        }
-
-        if (hlRes.status === 'fulfilled') {
-          setHighlights(hlRes.value);
-        }
-
-        if (likesRes.status === 'fulfilled') {
-          setLikedTracks(likesRes.value);
-        }
-
-        if (dlRes.status === 'fulfilled') {
-          setDownloadedTracks(dlRes.value);
-        }
-      } catch (err: any) {
-        setError(err.message || '프로필을 불러오지 못했습니다.');
+        if (tracksRes.status === 'fulfilled') setTracks(tracksRes.value);
+        if (postsRes.status === 'fulfilled') setPosts(postsRes.value);
+        if (hlRes.status === 'fulfilled') setHighlights(hlRes.value);
+        if (likesRes.status === 'fulfilled') setLikedTracks(likesRes.value);
+        if (dlRes.status === 'fulfilled') setDownloadedTracks(dlRes.value);
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : '프로필을 불러오지 못했습니다.';
+        setError(message);
       } finally {
         setLoading(false);
       }
     }
 
-    if (username) {
-      loadProfileData();
-    }
-  }, [username]);
+    loadProfileData();
+  }, [username, isMyProfile, currentUser, authProfile]);
 
   const handlePlayTrack = (trackId: string, title?: string, artist?: string, coverUrl?: string) => {
     if (currentTrack?.track_id === trackId) {
@@ -124,12 +126,13 @@ export default function InstagramProfilePage() {
       return;
     }
 
+    const name = profile?.username || username;
     const mockTrack: any = {
       track_id: trackId,
       title: title || 'Curated Track',
-      artist: artist || username,
-      primary_artist: artist || username,
-      album: `${username}'s Collection`,
+      artist: artist || name,
+      primary_artist: artist || name,
+      album: `${name}'s Collection`,
       genre: 'Digging',
       year: new Date().getFullYear().toString(),
       bpm: 0,
@@ -179,6 +182,21 @@ export default function InstagramProfilePage() {
     );
   }
 
+  if (error || !profile) {
+    return (
+      <div className="max-w-lg mx-auto px-4 py-16 text-center space-y-4">
+        <p className="text-sm text-muted-foreground">{error || '프로필을 불러올 수 없습니다.'}</p>
+        <Link
+          href="/"
+          className="inline-block text-sm text-[#d4a853] hover:underline"
+        >
+          홈으로 돌아가기
+        </Link>
+      </div>
+    );
+  }
+
+  const displayUsername = profile.username;
   const featuredTrack = tracks[0] || posts[0]?.track || null;
 
   return (
@@ -273,7 +291,7 @@ export default function InstagramProfilePage() {
       {/* ── 3. Now Spinning Turntable on Deck ── */}
       {featuredTrack && (
         <section>
-          <NowSpinningWidget track={featuredTrack} collectorName={profile?.display_name || username} />
+          <NowSpinningWidget track={featuredTrack} collectorName={profile?.display_name || displayUsername} />
         </section>
       )}
 

@@ -16,6 +16,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { FormEvent, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
+import { getProfileHref } from '@/lib/profile';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -38,6 +39,7 @@ export default function Navbar() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [query, setQuery] = useState('');
   const { user, profile, signOut } = useAuth();
+  const profileHref = getProfileHref(user, profile);
 
   const isLoginPage = pathname.startsWith('/login');
   const isLegalPage = pathname.startsWith('/privacy');
@@ -97,11 +99,18 @@ export default function Navbar() {
                     alt="Avatar"
                     className="w-full h-full object-cover"
                   />
+                ) : user.user_metadata?.picture ? (
+                  <img
+                    src={user.user_metadata.picture as string}
+                    alt="Avatar"
+                    className="w-full h-full object-cover"
+                  />
                 ) : (
                   <div className="w-full h-full bg-secondary flex items-center justify-center text-xs">
-                    {profile?.display_name?.charAt(0).toUpperCase() || (
-                      <UserIcon className="w-4 h-4" />
-                    )}
+                    {profile?.display_name?.charAt(0).toUpperCase() ||
+                      user.email?.charAt(0).toUpperCase() || (
+                        <UserIcon className="w-4 h-4" />
+                      )}
                   </div>
                 )}
               </DropdownMenuTrigger>
@@ -115,18 +124,16 @@ export default function Navbar() {
                       {profile?.display_name || user.email}
                     </p>
                     <p className="text-xs leading-none text-muted-foreground">
-                      @{profile?.username || 'user'}
+                      @{profile?.username || 'me'}
                     </p>
                   </div>
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem className="cursor-pointer">
-                  <Link
-                    href={`/profile/${profile?.username || user.id}`}
-                    className="w-full"
-                  >
-                    내 프로필
-                  </Link>
+                <DropdownMenuItem
+                  className="cursor-pointer"
+                  onClick={() => router.push(profileHref)}
+                >
+                  내 프로필
                 </DropdownMenuItem>
                 <DropdownMenuItem className="cursor-pointer">설정</DropdownMenuItem>
                 <DropdownMenuSeparator />

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import uuid
+
 import requests as http_requests
 from fastapi import APIRouter, Depends, HTTPException
 
@@ -10,6 +12,14 @@ from server.models import UserProfile, UserProfileUpdate
 from server.supabase_db import get_headers, is_supabase_enabled, _SUPABASE_URL
 
 router = APIRouter(prefix="/users", tags=["Users"])
+
+
+def _is_uuid(value: str) -> bool:
+    try:
+        uuid.UUID(value)
+        return True
+    except (ValueError, TypeError):
+        return False
 
 
 def _row_to_profile(row: dict) -> UserProfile:
@@ -43,6 +53,21 @@ async def get_my_profile(user_id: str = Depends(get_current_user)):
     data = resp.json()
 
     if not data:
+        payload = {
+            "user_id": user_id,
+            "username": f"user_{user_id.replace('-', '')[:8]}",
+            "display_name": "User",
+            "bio": "",
+            "avatar_url": "",
+            "is_public": True,
+        }
+        headers["Prefer"] = "return=representation"
+        create_resp = http_requests.post(url, headers=headers, json=payload, timeout=5)
+        if create_resp.ok:
+            created = create_resp.json()
+            if created:
+                row = created[0] if isinstance(created, list) else created
+                return _row_to_profile(row)
         return UserProfile(user_id=user_id, username=user_id[:8], display_name="User")
 
     return _row_to_profile(data[0])
@@ -81,13 +106,16 @@ async def get_user_profile(
     username: str,
     current_user_id: str | None = Depends(get_optional_user),
 ):
-    """특정 사용자의 공개 프로필을 조회합니다."""
+    """특정 사용자의 공개 프로필을 조회합니다 (username 또는 user_id UUID)."""
     if not is_supabase_enabled():
         raise HTTPException(status_code=500, detail="Supabase가 설정되지 않았습니다.")
 
     url = f"{_SUPABASE_URL}/rest/v1/profiles"
     headers = get_headers()
-    params = {"username": f"eq.{username}", "select": "*", "limit": "1"}
+    if _is_uuid(username):
+        params = {"user_id": f"eq.{username}", "select": "*", "limit": "1"}
+    else:
+        params = {"username": f"eq.{username}", "select": "*", "limit": "1"}
 
     resp = http_requests.get(url, headers=headers, params=params, timeout=5)
     resp.raise_for_status()

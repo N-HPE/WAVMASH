@@ -447,6 +447,10 @@ class WaveMashAPI {
 
   /* ── Social / Profile Endpoints ── */
 
+  async getMyProfile(): Promise<import('./types').UserProfile> {
+    return this.fetch<import('./types').UserProfile>('/api/users/me');
+  }
+
   async getProfile(username: string): Promise<import('./types').UserProfile> {
     return this.fetch<import('./types').UserProfile>(`/api/users/${encodeURIComponent(username)}`);
   }
