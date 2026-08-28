@@ -383,8 +383,8 @@ class WaveMashAPI {
   }
 
   async getSpotifyChart(
-    region: string = 'global',
-    limit: number = 50
+    region: string = 'genres',
+    limit: number = 10
   ): Promise<import('./types').CatalogChart> {
     return this.fetch<import('./types').CatalogChart>(
       `/api/catalog/charts${this.buildQueryString({ region, limit })}`

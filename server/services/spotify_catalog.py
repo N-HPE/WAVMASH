@@ -525,16 +525,22 @@ def _search_new_tracks_for_genre(
     queries: list[str],
     *,
     limit: int = 10,
-    lookback_days: int = 540,
+    lookback_days: int = 180,
 ) -> list[dict[str, Any]]:
-    """장르 쿼리로 최근 발매곡을 모아 신곡 순으로 상위 N곡 반환."""
+    """장르 쿼리로 최근 발매곡을 모아 최신·인기 점수로 상위 N곡 반환."""
     today = date.today()
     y1 = today.year
     y0 = y1 - 1
     cutoff = today - timedelta(days=lookback_days)
     seen: set[str] = set()
-    collected: list[tuple[date, dict[str, Any]]] = []
+    collected: list[tuple[float, date, dict[str, Any]]] = []
     noise_titles = {"pop", "rap", "rock", "latin", "k-pop", "kpop", "r&b", "indie"}
+
+    def _score(released: date, popularity: int) -> float:
+        age = max(0, (today - released).days)
+        fresh = max(0.0, 1.0 - (age / float(lookback_days)))
+        # 최근일수록 가점, 인기(0–100)로 순위 결정
+        return float(popularity) * (0.30 + 0.70 * fresh) + fresh * 8.0
 
     def _consume(items: list[dict[str, Any]]) -> None:
         for item in items:
@@ -557,11 +563,12 @@ def _search_new_tracks_for_genre(
             seen.add(dedupe_key)
             payload = _track_payload(item)
             payload["release_date"] = album.get("release_date") or ""
-            collected.append((released, payload))
+            pop = int(payload.get("popularity") or 0)
+            collected.append((_score(released, pop), released, payload))
 
     for template in queries:
         q = template.format(y0=y0, y1=y1)
-        for offset in (0, 10):
+        for offset in (0, 10, 20):
             try:
                 data = sp.search(
                     q=q, type="track", limit=10, offset=offset, market="US"
@@ -569,14 +576,15 @@ def _search_new_tracks_for_genre(
             except Exception:
                 break
             _consume(list((data.get("tracks") or {}).get("items") or []))
-            if len(collected) >= limit * 3:
+            if len(collected) >= limit * 5:
                 break
-        if len(collected) >= limit * 3:
+        if len(collected) >= limit * 5:
             break
 
-    collected.sort(key=lambda pair: pair[0], reverse=True)
+    # 최신·인기 점수 내림차순 (동점이면 더 최근 발매)
+    collected.sort(key=lambda row: (row[0], row[1]), reverse=True)
     out: list[dict[str, Any]] = []
-    for i, (_, track) in enumerate(collected[:limit], start=1):
+    for i, (_, __, track) in enumerate(collected[:limit], start=1):
         track = dict(track)
         track["rank"] = i
         track["item_type"] = "track"
@@ -585,10 +593,10 @@ def _search_new_tracks_for_genre(
 
 
 def get_genre_new_charts(per_genre: int = 10) -> dict[str, Any]:
-    """장르별 최근 신곡 Top N (하루 1회 캐시)."""
+    """장르별 최근 인기 Top N (하루 1회 캐시)."""
     capped = max(1, min(int(per_genre or 10), 20))
     today_key = date.today().isoformat()
-    cache_key = f"genres:{capped}"
+    cache_key = f"genres-v2:{capped}"
     cached = _chart_cache.get(cache_key)
     if cached and cached[0] == today_key:
         return cached[1]
@@ -597,7 +605,7 @@ def get_genre_new_charts(per_genre: int = 10) -> dict[str, Any]:
     genres_out: list[dict[str, Any]] = []
     for gdef in _GENRE_CHART_DEFS:
         tracks = _search_new_tracks_for_genre(
-            sp, list(gdef["queries"]), limit=capped
+            sp, list(gdef["queries"]), limit=capped, lookback_days=180
         )
         genres_out.append(
             {
@@ -609,9 +617,9 @@ def get_genre_new_charts(per_genre: int = 10) -> dict[str, Any]:
 
     result: dict[str, Any] = {
         "region": "genres",
-        "region_label": "장르별 신곡",
-        "playlist_name": "Genre New Tracks",
-        "playlist_id": "genre-new",
+        "region_label": "장르별 인기",
+        "playlist_name": "Genre Popular Recent",
+        "playlist_id": "genre-popular-recent",
         "chart_date": today_key,
         "updated_at": datetime.now(timezone.utc).isoformat(),
         "tracks": [],
