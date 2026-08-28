@@ -1,8 +1,8 @@
 'use client';
 
 /* ──────────────────────────────────────────────
-   WaveMash — Add Track To Playlist Modal (소장하기)
-   마음에 드는 음악을 내 플레이리스트에 즉시 담아 소장하는 모달
+   WaveMash — Add Track To Playlist Modal
+   로컬 WAV / 카탈로그 곡을 플레이리스트에 담기
    ────────────────────────────────────────────── */
 
 import React, { useState, useEffect } from 'react';
@@ -14,12 +14,10 @@ import {
   Check,
   Disc3,
   Sparkles,
-  FolderPlus,
   Loader2,
 } from 'lucide-react';
 import api from '@/lib/api';
 import type { Playlist, Track } from '@/lib/types';
-import { useAuth } from '@/contexts/AuthContext';
 
 interface AddToPlaylistModalProps {
   isOpen: boolean;
@@ -27,12 +25,17 @@ interface AddToPlaylistModalProps {
   track: Track;
 }
 
+function coverSrc(track: Track): string | null {
+  if (track.thumbnail_url?.startsWith('http')) return track.thumbnail_url;
+  if (track.has_cover) return api.getCoverUrl(track.track_id, 120);
+  return null;
+}
+
 export default function AddToPlaylistModal({
   isOpen,
   onClose,
   track,
 }: AddToPlaylistModalProps) {
-  const { user } = useAuth();
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState<string | null>(null);
@@ -55,15 +58,25 @@ export default function AddToPlaylistModal({
 
   if (!isOpen) return null;
 
+  const catalogMeta = {
+    title: track.title,
+    artist: track.artist,
+    album: track.album,
+    cover_url: track.thumbnail_url || undefined,
+    thumbnail_url: track.thumbnail_url || undefined,
+    preview_url: track.preview_url,
+    spotify_url: track.url,
+    platform: track.platform || 'spotify',
+    external_id: track.external_id,
+    duration_ms: track.duration_ms,
+    popularity: track.popularity,
+  };
+
   const handleAddToPlaylist = async (playlist: Playlist) => {
     const pId = playlist.id || playlist.name;
     setSavingId(pId);
     try {
-      await api.addTrackToPlaylist(pId, track.track_id, {
-        title: track.title,
-        artist: track.artist,
-        cover_url: api.getCoverUrl(track.track_id, 320),
-      });
+      await api.addTrackToPlaylist(pId, track.track_id, catalogMeta);
       setSavedId(pId);
       setTimeout(() => {
         onClose();
@@ -91,11 +104,7 @@ export default function AddToPlaylistModal({
       });
 
       const newId = created.id || created.name;
-      await api.addTrackToPlaylist(newId, track.track_id, {
-        title: track.title,
-        artist: track.artist,
-        cover_url: api.getCoverUrl(track.track_id, 320),
-      });
+      await api.addTrackToPlaylist(newId, track.track_id, catalogMeta);
 
       setPlaylists((prev) => [created, ...prev]);
       setSavedId(newId);
@@ -113,6 +122,7 @@ export default function AddToPlaylistModal({
     }
   };
 
+  const thumb = coverSrc(track);
 
   return (
     <AnimatePresence>
@@ -123,7 +133,6 @@ export default function AddToPlaylistModal({
           exit={{ opacity: 0, scale: 0.95, y: 20 }}
           className="relative max-w-md w-full bg-[#0e0e1a] border border-white/10 rounded-2xl overflow-hidden shadow-2xl p-6"
         >
-          {/* Close button */}
           <button
             onClick={onClose}
             className="absolute top-4 right-4 text-muted-foreground hover:text-white transition-colors"
@@ -131,18 +140,16 @@ export default function AddToPlaylistModal({
             <X className="w-5 h-5" />
           </button>
 
-          {/* Modal Header */}
           <div className="flex items-center gap-2 mb-4 text-sm font-semibold text-[#d4a853]">
             <Sparkles className="w-4 h-4" />
-            내 플레이리스트에 소장하기
+            플레이리스트에 담기
           </div>
 
-          {/* Track Summary Preview */}
           <div className="flex items-center gap-3 p-3 rounded-xl bg-white/5 border border-white/10 mb-5">
             <div className="w-12 h-12 rounded-lg bg-black/40 overflow-hidden shrink-0">
-              {track.has_cover ? (
+              {thumb ? (
                 <img
-                  src={api.getCoverUrl(track.track_id, 120)}
+                  src={thumb}
                   alt={track.title}
                   className="w-full h-full object-cover"
                 />
@@ -158,7 +165,6 @@ export default function AddToPlaylistModal({
             </div>
           </div>
 
-          {/* Create New Playlist Form Toggle */}
           {isCreatingNew ? (
             <form onSubmit={handleCreateAndAdd} className="space-y-3 mb-4">
               <div>
@@ -167,7 +173,7 @@ export default function AddToPlaylistModal({
                 </label>
                 <input
                   type="text"
-                  placeholder="예: 새벽 드라이브 바이닐 믹스"
+                  placeholder="예: 새벽 드라이브 믹스"
                   value={newTitle}
                   onChange={(e) => setNewTitle(e.target.value)}
                   autoFocus
@@ -199,7 +205,11 @@ export default function AddToPlaylistModal({
                   disabled={!newTitle.trim() || creating}
                   className="flex-1 py-2 rounded-xl bg-[#d4a853] text-black text-xs font-bold hover:bg-amber-400 transition-colors disabled:opacity-50 flex items-center justify-center gap-1.5"
                 >
-                  {creating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                  {creating ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Check className="w-3.5 h-3.5" />
+                  )}
                   생성하고 담기
                 </button>
               </div>
@@ -207,7 +217,9 @@ export default function AddToPlaylistModal({
           ) : (
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-white/70">담을 플레이리스트 선택</span>
+                <span className="text-xs font-semibold text-white/70">
+                  담을 플레이리스트 선택
+                </span>
                 <button
                   type="button"
                   onClick={() => setIsCreatingNew(true)}
@@ -224,7 +236,9 @@ export default function AddToPlaylistModal({
                   </div>
                 ) : playlists.length === 0 ? (
                   <div className="text-center py-6 glass rounded-xl space-y-2">
-                    <p className="text-xs text-muted-foreground">생성된 플레이리스트가 없습니다.</p>
+                    <p className="text-xs text-muted-foreground">
+                      생성된 플레이리스트가 없습니다.
+                    </p>
                     <button
                       onClick={() => setIsCreatingNew(true)}
                       className="px-3 py-1.5 rounded-lg bg-[#d4a853] text-black text-xs font-semibold inline-flex items-center gap-1"
@@ -253,21 +267,24 @@ export default function AddToPlaylistModal({
                             <Music className="w-4 h-4" />
                           </div>
                           <div className="min-w-0">
-                            <h5 className="text-xs font-bold text-white truncate">{pl.title || pl.name}</h5>
-                            <p className="text-[10px] text-muted-foreground">{pl.track_count || 0}곡 소장됨</p>
+                            <h5 className="text-xs font-bold text-white truncate">
+                              {pl.title || pl.name}
+                            </h5>
+                            <p className="text-[10px] text-muted-foreground">
+                              {pl.track_count || 0}곡
+                            </p>
                           </div>
                         </div>
-
 
                         <div>
                           {isSaved ? (
                             <span className="text-[11px] font-bold text-green-400 flex items-center gap-1">
-                              <Check className="w-3.5 h-3.5" /> 소장됨
+                              <Check className="w-3.5 h-3.5" /> 담김
                             </span>
                           ) : isSaving ? (
                             <Loader2 className="w-4 h-4 text-[#d4a853] animate-spin" />
                           ) : (
-                            <Plus className="w-4 h-4 text-white/50 group-hover:text-white" />
+                            <Plus className="w-4 h-4 text-white/50" />
                           )}
                         </div>
                       </div>

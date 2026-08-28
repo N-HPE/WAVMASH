@@ -26,6 +26,7 @@ export interface Track {
   preview_url?: string;
   popularity?: number;
   duration_ms?: number;
+  catalog_only?: boolean;
 }
 
 export interface CatalogTrack {

@@ -36,6 +36,10 @@ class Track(BaseModel):
     has_file: bool = False
     dominant_color: str | None = None
     analysis: dict[str, Any] | None = None
+    preview_url: str = ""
+    duration_ms: int = 0
+    popularity: int = 0
+    catalog_only: bool = False
 
 
 class TrackCreate(BaseModel):
@@ -110,9 +114,20 @@ class PlaylistUpdate(BaseModel):
 
 
 class PlaylistAddTrack(BaseModel):
-    """플레이리스트에 트랙 추가 요청."""
+    """플레이리스트에 트랙 추가 요청 (로컬 파일 또는 카탈로그 스텁)."""
 
     track_id: str
+    title: str | None = None
+    artist: str | None = None
+    album: str | None = None
+    cover_url: str | None = None
+    thumbnail_url: str | None = None
+    preview_url: str | None = None
+    spotify_url: str | None = None
+    platform: str | None = None
+    external_id: str | None = None
+    duration_ms: int | None = None
+    popularity: int | None = None
 
 
 # ---------------------------------------------------------------------------

@@ -161,7 +161,8 @@ async def get_playlist_tracks(name: str) -> list[dict[str, Any]]:
             })
             continue
         track = _record_to_track(rec).model_dump()
-        track["missing"] = not track.get("has_file")
+        # missing = 메타조차 없는 경우. 카탈로그 스텁(파일 없음)은 재생 가능하므로 missing=False
+        track["missing"] = False
         result.append(track)
     return result
 
@@ -273,7 +274,11 @@ async def delete_playlist(name: str) -> MessageResponse:
 
 @router.post("/{name}/tracks", response_model=Playlist)
 async def add_track_to_playlist(name: str, body: PlaylistAddTrack) -> Playlist:
-    """플레이리스트에 트랙을 추가합니다."""
+    """플레이리스트에 트랙을 추가합니다.
+
+    다운로드된 로컬 트랙뿐 아니라, 차트/검색 카탈로그 곡도
+    메타 스텁으로 저장해 인앱 재생용으로 모을 수 있습니다.
+    """
     data = load_playlists()
     playlists = data.get("playlists", {})
     activity = data.get("activity", {})
@@ -282,15 +287,57 @@ async def add_track_to_playlist(name: str, body: PlaylistAddTrack) -> Playlist:
     if name not in playlists:
         raise HTTPException(status_code=404, detail=f"'{name}' 플레이리스트를 찾을 수 없습니다.")
 
-    # 트랙 존재 확인
+    track_id = (body.track_id or "").strip()
+    if not track_id:
+        raise HTTPException(status_code=400, detail="track_id가 필요합니다.")
+
     cache = get_archive_cache()
-    record = cache.get_record(body.track_id)
+    record = cache.get_record(track_id)
     if not record:
-        raise HTTPException(status_code=404, detail="트랙을 찾을 수 없습니다.")
+        # 카탈로그/외부 곡 스텁 (파일 없이 메타만)
+        external_id = (body.external_id or "").strip()
+        if not external_id and track_id.startswith("sp:"):
+            external_id = track_id[3:]
+        thumb = (body.thumbnail_url or body.cover_url or "").strip()
+        url = (body.spotify_url or "").strip()
+        if not url and external_id:
+            url = f"https://open.spotify.com/track/{external_id}"
+        stub = {
+            "track_id": track_id,
+            "id": track_id,
+            "title": (body.title or "").strip() or "Unknown",
+            "artist": (body.artist or "").strip() or "Unknown",
+            "primary_artist": (body.artist or "").strip() or "Unknown",
+            "album": (body.album or "").strip() or "",
+            "genre": "",
+            "year": "",
+            "bpm": "",
+            "key": "",
+            "camelot_key": "",
+            "energy_level": 0,
+            "platform": (body.platform or "spotify").strip() or "spotify",
+            "format": "catalog",
+            "url": url,
+            "external_id": external_id,
+            "thumbnail_url": thumb,
+            "preview_url": (body.preview_url or "").strip(),
+            "duration_ms": int(body.duration_ms or 0),
+            "popularity": int(body.popularity or 0),
+            "path": "",
+            "local_path": "",
+            "has_file": False,
+            "catalog_only": True,
+        }
+        if not stub["title"] or stub["title"] == "Unknown":
+            raise HTTPException(
+                status_code=404,
+                detail="트랙을 찾을 수 없습니다. 카탈로그 곡은 제목·아티스트 메타가 필요합니다.",
+            )
+        cache.upsert(stub, prepend=True)
 
     track_ids = playlists[name]
-    if body.track_id not in track_ids:
-        track_ids.append(body.track_id)
+    if track_id not in track_ids:
+        track_ids.append(track_id)
 
     playlists[name] = track_ids
     activity[name] = time.time()

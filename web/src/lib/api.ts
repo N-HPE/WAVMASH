@@ -272,7 +272,19 @@ class WaveMashAPI {
   async addTrackToPlaylist(
     nameOrId: string,
     trackId: string,
-    meta?: { title?: string; artist?: string; cover_url?: string }
+    meta?: {
+      title?: string;
+      artist?: string;
+      album?: string;
+      cover_url?: string;
+      thumbnail_url?: string;
+      preview_url?: string;
+      spotify_url?: string;
+      platform?: string;
+      external_id?: string;
+      duration_ms?: number;
+      popularity?: number;
+    }
   ): Promise<any> {
     const isSocial = nameOrId.includes('-') && nameOrId.length > 20;
     const url = isSocial
@@ -285,7 +297,15 @@ class WaveMashAPI {
         track_id: trackId,
         title: meta?.title,
         artist: meta?.artist,
-        cover_url: meta?.cover_url,
+        album: meta?.album,
+        cover_url: meta?.cover_url || meta?.thumbnail_url,
+        thumbnail_url: meta?.thumbnail_url || meta?.cover_url,
+        preview_url: meta?.preview_url,
+        spotify_url: meta?.spotify_url,
+        platform: meta?.platform,
+        external_id: meta?.external_id,
+        duration_ms: meta?.duration_ms,
+        popularity: meta?.popularity,
       }),
     });
   }

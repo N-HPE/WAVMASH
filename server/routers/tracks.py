@@ -40,6 +40,8 @@ router = APIRouter(prefix="/tracks", tags=["트랙"])
 
 def _record_to_track(rec: dict[str, Any]) -> Track:
     """내부 레코드 → Pydantic Track 모델 변환."""
+    thumb = str(rec.get("thumbnail_url") or "")
+    has_file = record_has_file(rec)
     return Track(
         track_id=str(rec.get("track_id") or rec.get("id") or ""),
         title=str(rec.get("title") or ""),
@@ -54,15 +56,21 @@ def _record_to_track(rec: dict[str, Any]) -> Track:
         energy_level=int(rec.get("energy_level") or 0),
         bpm_source=str(rec.get("bpm_source") or ""),
         platform=str(rec.get("platform") or ""),
-        format=str(rec.get("format") or "WAV"),
+        format=str(rec.get("format") or ("catalog" if not has_file else "WAV")),
         url=str(rec.get("url") or ""),
         external_id=str(rec.get("external_id") or ""),
-        thumbnail_url=str(rec.get("thumbnail_url") or ""),
+        thumbnail_url=thumb,
         local_path=str(rec.get("local_path") or rec.get("path") or ""),
         has_cover=record_has_cover(rec),
-        has_file=record_has_file(rec),
+        has_file=has_file,
         dominant_color=get_cached_color(str(rec.get("track_id") or rec.get("id") or "")),
         analysis=rec.get("analysis") if isinstance(rec.get("analysis"), dict) else None,
+        preview_url=str(rec.get("preview_url") or ""),
+        duration_ms=int(rec.get("duration_ms") or 0),
+        popularity=int(rec.get("popularity") or 0),
+        catalog_only=bool(rec.get("catalog_only")) or (
+            not has_file and str(rec.get("platform") or "").lower() in {"spotify", "youtube", "catalog"}
+        ),
     )
 
 
