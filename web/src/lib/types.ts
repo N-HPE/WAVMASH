@@ -52,6 +52,17 @@ export interface CatalogArtist {
   popularity: number;
 }
 
+export interface CatalogAlbum {
+  id: string;
+  name: string;
+  album_type: string;
+  artist: string;
+  thumbnail_url: string;
+  spotify_url: string;
+  release_date: string;
+  total_tracks: number;
+}
+
 export interface CatalogSearchResult {
   artists: CatalogArtist[];
   tracks: CatalogTrack[];
@@ -60,6 +71,13 @@ export interface CatalogSearchResult {
 export interface CatalogArtistProfile {
   artist: CatalogArtist;
   top_tracks: CatalogTrack[];
+  albums: CatalogAlbum[];
+  singles: CatalogAlbum[];
+}
+
+export interface CatalogAlbumDetail {
+  album: CatalogAlbum;
+  tracks: CatalogTrack[];
 }
 
 

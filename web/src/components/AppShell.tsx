@@ -5,7 +5,7 @@ import Sidebar from '@/components/Sidebar';
 import RightPanel from '@/components/RightPanel';
 
 const STANDALONE_ROUTES = ['/login'];
-const WIDE_ROUTES = ['/search', '/artist'];
+const WIDE_ROUTES = ['/search', '/artist', '/album'];
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();

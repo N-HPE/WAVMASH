@@ -362,6 +362,14 @@ class WaveMashAPI {
     );
   }
 
+  async getCatalogAlbum(
+    albumId: string
+  ): Promise<import('./types').CatalogAlbumDetail> {
+    return this.fetch<import('./types').CatalogAlbumDetail>(
+      `/api/catalog/albums/${encodeURIComponent(albumId)}`
+    );
+  }
+
   async resolveCatalogPreview(
     title: string,
     artist: string,

@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { Search } from 'lucide-react';
+import { ChevronRight, Search } from 'lucide-react';
 import api from '@/lib/api';
 import type { CatalogSearchResult } from '@/lib/types';
 import CatalogTrackRow from '@/components/CatalogTrackRow';
@@ -56,6 +56,8 @@ function SearchInner() {
     );
   }
 
+  const primaryArtist = data?.artists?.[0];
+
   return (
     <div className="py-4 space-y-6">
       <div>
@@ -78,7 +80,18 @@ function SearchInner() {
         <>
           {data.artists.length > 0 && (
             <section>
-              <h2 className="text-sm font-semibold mb-3">아티스트</h2>
+              <div className="flex items-center justify-between mb-3 gap-2">
+                <h2 className="text-sm font-semibold">아티스트</h2>
+                {primaryArtist && (
+                  <Link
+                    href={`/artist/${primaryArtist.id}`}
+                    className="inline-flex items-center gap-0.5 text-xs font-medium text-muted-foreground hover:text-foreground"
+                  >
+                    See all
+                    <ChevronRight className="h-3.5 w-3.5" />
+                  </Link>
+                )}
+              </div>
               <div className="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1">
                 {data.artists.map((artist) => (
                   <Link
@@ -105,8 +118,17 @@ function SearchInner() {
           )}
 
           <section className="feed-card">
-            <div className="px-4 py-3 border-b border-border">
+            <div className="px-4 py-3 border-b border-border flex items-center justify-between gap-2">
               <h2 className="text-sm font-semibold">곡</h2>
+              {primaryArtist && (
+                <Link
+                  href={`/artist/${primaryArtist.id}`}
+                  className="inline-flex items-center gap-0.5 text-xs font-medium text-muted-foreground hover:text-foreground"
+                >
+                  See all
+                  <ChevronRight className="h-3.5 w-3.5" />
+                </Link>
+              )}
             </div>
             {data.tracks.length > 0 ? (
               <div className="py-1">

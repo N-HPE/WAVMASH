@@ -1,13 +1,14 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import { ChevronDown, ChevronUp } from 'lucide-react';
+import { ChevronLeft } from 'lucide-react';
 import api from '@/lib/api';
 import type { CatalogArtistProfile } from '@/lib/types';
 import CatalogTrackRow from '@/components/CatalogTrackRow';
+import CatalogAlbumCard from '@/components/CatalogAlbumCard';
 import { Skeleton } from '@/components/ui/skeleton';
-import { formatFollowers } from '@/lib/catalog';
 
 export default function ArtistPage() {
   const params = useParams();
@@ -15,12 +16,12 @@ export default function ArtistPage() {
   const [profile, setProfile] = useState<CatalogArtistProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [showMore, setShowMore] = useState(false);
 
   useEffect(() => {
     if (!artistId) return;
     let cancelled = false;
     setLoading(true);
+    setError(null);
     api
       .getCatalogArtist(artistId)
       .then((data) => {
@@ -42,7 +43,7 @@ export default function ArtistPage() {
   if (loading) {
     return (
       <div className="py-4 space-y-4">
-        <Skeleton className="h-40 rounded-lg skeleton-shimmer" />
+        <Skeleton className="h-24 rounded-lg skeleton-shimmer" />
         <Skeleton className="h-64 rounded-lg skeleton-shimmer" />
       </div>
     );
@@ -56,71 +57,91 @@ export default function ArtistPage() {
     );
   }
 
-  const { artist, top_tracks } = profile;
-  const visible = showMore ? top_tracks.slice(0, 10) : top_tracks.slice(0, 5);
+  const { artist, top_tracks, albums, singles } = profile;
 
   return (
-    <div className="py-4 space-y-4">
-      <div className="feed-card overflow-hidden">
-        <div className="h-28 sm:h-36 bg-gradient-to-r from-[#1a1a2e] via-[#2d1f3d] to-[#1a1a2e]" />
-        <div className="px-4 pb-5 -mt-12 relative flex flex-col sm:flex-row sm:items-end gap-4">
-          <div className="h-28 w-28 sm:h-36 sm:w-36 rounded-full overflow-hidden border-4 border-card bg-secondary shrink-0 shadow-lg">
+    <div className="py-4 space-y-6">
+      <div>
+        <Link
+          href="/search"
+          className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground mb-2"
+        >
+          <ChevronLeft className="h-3.5 w-3.5" />
+          검색
+        </Link>
+        <div className="flex items-center gap-4 min-w-0">
+          <div className="h-20 w-20 sm:h-24 sm:w-24 rounded-full overflow-hidden bg-secondary shrink-0">
             {artist.image_url ? (
               <img
                 src={artist.image_url}
-                alt={artist.name}
+                alt=""
                 className="h-full w-full object-cover"
               />
             ) : null}
           </div>
-          <div className="pb-1 min-w-0">
-            <p className="text-xs uppercase tracking-wider text-muted-foreground mb-1">
-              아티스트
-            </p>
-            <h1 className="text-2xl sm:text-3xl font-bold truncate">{artist.name}</h1>
-            <p className="text-sm text-muted-foreground mt-1">
-              {formatFollowers(artist.followers)} 팔로워
-              {artist.genres.length > 0 ? ` · ${artist.genres.slice(0, 3).join(', ')}` : ''}
-            </p>
+          <div className="min-w-0">
+            <p className="text-xs text-muted-foreground mb-0.5">아티스트</p>
+            <h1 className="text-xl sm:text-2xl font-bold truncate">{artist.name}</h1>
+            {artist.genres.length > 0 && (
+              <p className="text-xs text-muted-foreground mt-1 truncate">
+                {artist.genres.slice(0, 3).join(', ')}
+              </p>
+            )}
           </div>
         </div>
       </div>
 
-      <div className="feed-card">
+      <section className="feed-card">
         <div className="px-4 py-3 border-b border-border">
-          <h2 className="text-base font-semibold">인기</h2>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            이 아티스트의 가장 많이 재생된 곡
+          <h2 className="text-sm font-semibold">곡</h2>
+        </div>
+        {top_tracks.length > 0 ? (
+          <div className="py-1">
+            {top_tracks.map((track, i) => (
+              <CatalogTrackRow
+                key={track.id}
+                track={track}
+                rank={i + 1}
+                queue={top_tracks}
+              />
+            ))}
+          </div>
+        ) : (
+          <p className="p-8 text-center text-sm text-muted-foreground">
+            곡을 찾지 못했습니다.
           </p>
-        </div>
-        <div className="py-1">
-          {visible.map((track, i) => (
-            <CatalogTrackRow
-              key={track.id}
-              track={track}
-              rank={i + 1}
-              queue={top_tracks}
-            />
-          ))}
-        </div>
-        {top_tracks.length > 5 && (
-          <button
-            type="button"
-            onClick={() => setShowMore((v) => !v)}
-            className="w-full flex items-center justify-center gap-1 py-3 text-xs font-medium text-muted-foreground hover:text-foreground border-t border-border"
-          >
-            {showMore ? (
-              <>
-                접기 <ChevronUp className="h-3.5 w-3.5" />
-              </>
-            ) : (
-              <>
-                Show more <ChevronDown className="h-3.5 w-3.5" />
-              </>
-            )}
-          </button>
         )}
-      </div>
+      </section>
+
+      {albums.length > 0 && (
+        <section>
+          <h2 className="text-sm font-semibold mb-3">앨범</h2>
+          <div className="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1">
+            {albums.map((album) => (
+              <CatalogAlbumCard
+                key={album.id}
+                album={album}
+                href={`/album/${album.id}`}
+              />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {singles.length > 0 && (
+        <section>
+          <h2 className="text-sm font-semibold mb-3">싱글 및 EP</h2>
+          <div className="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1">
+            {singles.map((album) => (
+              <CatalogAlbumCard
+                key={album.id}
+                album={album}
+                href={`/album/${album.id}`}
+              />
+            ))}
+          </div>
+        </section>
+      )}
     </div>
   );
 }

@@ -1,4 +1,4 @@
-"""Spotify catalog search — artists, tracks, and artist top charts."""
+"""Spotify catalog search — artists, tracks, albums, and artist pages."""
 
 from __future__ import annotations
 
@@ -81,6 +81,24 @@ def _artist_payload(item: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _album_payload(item: dict[str, Any]) -> dict[str, Any]:
+    album_id = item.get("id") or ""
+    artists = item.get("artists") or []
+    artist_names = ", ".join(a.get("name") or "" for a in artists if a.get("name"))
+    release = str(item.get("release_date") or "")
+    return {
+        "id": album_id,
+        "name": item.get("name") or "",
+        "album_type": item.get("album_type") or item.get("type") or "album",
+        "artist": artist_names,
+        "thumbnail_url": _best_image(item.get("images")),
+        "spotify_url": (item.get("external_urls") or {}).get("spotify")
+        or (f"https://open.spotify.com/album/{album_id}" if album_id else ""),
+        "release_date": release,
+        "total_tracks": int(item.get("total_tracks") or 0),
+    }
+
+
 def _youtube_search(artist: str, title: str) -> dict[str, str]:
     """yt-dlp ytsearch로 매칭 영상 ID를 찾는다 (다운로드 없음)."""
     query = " ".join(p for p in (artist, title, "audio") if p).strip()
@@ -119,7 +137,7 @@ def _youtube_search(artist: str, title: str) -> dict[str, str]:
 
 def resolve_preview(artist: str, title: str, spotify_id: str = "") -> dict[str, str]:
     """카탈로그 미리듣기: YouTube 영상을 찾아 인페이지 재생용 ID를 반환."""
-    _ = spotify_id  # 호환용 (프론트에서 넘김)
+    _ = spotify_id
     return _resolve_preview_cached(
         (artist or "").strip(),
         (title or "").strip(),
@@ -157,6 +175,128 @@ def search_catalog(query: str) -> dict[str, Any]:
     return {"artists": artists, "tracks": tracks}
 
 
+def _artist_tracks_via_search(
+    sp: Any, artist_name: str, artist_id: str, limit: int = 20
+) -> list[dict[str, Any]]:
+    """Client Credentials에서 top-tracks가 403이라 검색으로 인기곡을 대체.
+
+    현재 Spotify 앱 한도로 search limit 최대 10 — offset으로 페이지네이션.
+    """
+    queries = [
+        f'artist:"{artist_name}"',
+        artist_name,
+    ]
+    seen: set[str] = set()
+    out: list[dict[str, Any]] = []
+    page_size = 10
+
+    for q in queries:
+        offset = 0
+        while len(out) < limit and offset < 30:
+            try:
+                data = sp.search(
+                    q=q,
+                    type="track",
+                    limit=page_size,
+                    offset=offset,
+                    market="US",
+                )
+            except Exception:
+                break
+            items = (data.get("tracks") or {}).get("items") or []
+            if not items:
+                break
+            for item in items:
+                tid = item.get("id") or ""
+                if not tid or tid in seen:
+                    continue
+                artist_ids = {a.get("id") for a in (item.get("artists") or [])}
+                if artist_id and artist_id not in artist_ids:
+                    continue
+                seen.add(tid)
+                out.append(_track_payload(item))
+                if len(out) >= limit:
+                    break
+            offset += page_size
+            total = int(((data.get("tracks") or {}).get("total") or 0))
+            if offset >= total:
+                break
+        if out:
+            break
+
+    if not out:
+        try:
+            data = sp.search(q=artist_name, type="track", limit=page_size, market="US")
+            for item in (data.get("tracks") or {}).get("items") or []:
+                tid = item.get("id") or ""
+                if tid and tid not in seen:
+                    seen.add(tid)
+                    out.append(_track_payload(item))
+        except Exception:
+            pass
+
+    out.sort(key=lambda t: int(t.get("popularity") or 0), reverse=True)
+    return out[:limit]
+
+
+def _artist_discography(
+    sp: Any, artist_id: str
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    albums: list[dict[str, Any]] = []
+    singles: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    page_size = 10
+    offset = 0
+    items: list[dict[str, Any]] = []
+
+    while offset < 50:
+        try:
+            results = sp.artist_albums(
+                artist_id,
+                album_type="album,single",
+                limit=page_size,
+                offset=offset,
+                country="US",
+            )
+        except Exception:
+            try:
+                results = sp.artist_albums(
+                    artist_id,
+                    album_type="album,single",
+                    limit=page_size,
+                    offset=offset,
+                )
+            except Exception:
+                break
+        batch = list((results or {}).get("items") or [])
+        if not batch:
+            break
+        items.extend(batch)
+        offset += page_size
+        total = int((results or {}).get("total") or 0)
+        if offset >= total:
+            break
+
+    for item in items:
+        aid = item.get("id") or ""
+        name = (item.get("name") or "").strip().lower()
+        key = aid or name
+        if not key or key in seen:
+            continue
+        name_key = f"{item.get('album_type')}:{name}"
+        if name_key in seen:
+            continue
+        seen.add(key)
+        seen.add(name_key)
+        payload = _album_payload(item)
+        if payload["album_type"] == "single":
+            singles.append(payload)
+        else:
+            albums.append(payload)
+
+    return albums[:30], singles[:30]
+
+
 @lru_cache(maxsize=128)
 def get_artist_profile(artist_id: str) -> dict[str, Any]:
     aid = (artist_id or "").strip()
@@ -166,12 +306,85 @@ def get_artist_profile(artist_id: str) -> dict[str, Any]:
     sp = _spotify_client()
     try:
         artist = sp.artist(aid)
-        top = sp.artist_top_tracks(aid, country="US")
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"아티스트 정보를 불러오지 못했습니다: {exc}") from exc
+        raise HTTPException(
+            status_code=502, detail=f"아티스트 정보를 불러오지 못했습니다: {exc}"
+        ) from exc
 
-    tracks = [_track_payload(t) for t in (top.get("tracks") or [])[:10]]
+    tracks: list[dict[str, Any]] = []
+    # top-tracks는 Client Credentials에서 403이 나는 경우가 많음 → 검색 폴백
+    try:
+        top = sp.artist_top_tracks(aid, country="US")
+        tracks = [_track_payload(t) for t in (top.get("tracks") or [])[:20]]
+    except Exception:
+        tracks = []
+
+    if not tracks:
+        tracks = _artist_tracks_via_search(sp, artist.get("name") or "", aid, limit=20)
+
+    albums, singles = _artist_discography(sp, aid)
+
+    # 검색 결과가 적으면 최신 앨범 트랙으로 보강
+    if len(tracks) < 12 and albums:
+        seen = {t["id"] for t in tracks if t.get("id")}
+        for alb in albums[:4]:
+            if len(tracks) >= 20:
+                break
+            try:
+                detail = sp.album(alb["id"], market="US")
+            except Exception:
+                continue
+            for item in (detail.get("tracks") or {}).get("items") or []:
+                tid = item.get("id") or ""
+                if not tid or tid in seen:
+                    continue
+                merged = dict(item)
+                merged["album"] = {
+                    "name": detail.get("name"),
+                    "images": detail.get("images"),
+                    "id": detail.get("id"),
+                }
+                seen.add(tid)
+                tracks.append(_track_payload(merged))
+                if len(tracks) >= 20:
+                    break
+
     return {
         "artist": _artist_payload(artist),
-        "top_tracks": tracks,
+        "top_tracks": tracks[:20],
+        "albums": albums,
+        "singles": singles,
+    }
+
+
+@lru_cache(maxsize=64)
+def get_album_tracks(album_id: str) -> dict[str, Any]:
+    alid = (album_id or "").strip()
+    if not alid:
+        raise HTTPException(status_code=400, detail="앨범 ID가 필요합니다.")
+
+    sp = _spotify_client()
+    try:
+        album = sp.album(alid, market="US")
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502, detail=f"앨범 정보를 불러오지 못했습니다: {exc}"
+        ) from exc
+
+    tracks_out: list[dict[str, Any]] = []
+    for item in (album.get("tracks") or {}).get("items") or []:
+        # album_tracks 응답에는 album 이미지가 없으므로 부모 앨범 주입
+        merged = dict(item)
+        merged["album"] = {
+            "name": album.get("name"),
+            "images": album.get("images"),
+            "id": album.get("id"),
+        }
+        if not merged.get("preview_url"):
+            merged["preview_url"] = ""
+        tracks_out.append(_track_payload(merged))
+
+    return {
+        "album": _album_payload(album),
+        "tracks": tracks_out,
     }

@@ -4,7 +4,12 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Query
 
-from server.services.spotify_catalog import get_artist_profile, resolve_preview, search_catalog
+from server.services.spotify_catalog import (
+    get_album_tracks,
+    get_artist_profile,
+    resolve_preview,
+    search_catalog,
+)
 
 router = APIRouter(prefix="/catalog", tags=["카탈로그"])
 
@@ -17,6 +22,11 @@ async def catalog_search(q: str = Query("", min_length=1, max_length=120)):
 @router.get("/artists/{artist_id}")
 async def catalog_artist(artist_id: str):
     return get_artist_profile(artist_id)
+
+
+@router.get("/albums/{album_id}")
+async def catalog_album(album_id: str):
+    return get_album_tracks(album_id)
 
 
 @router.get("/preview")
