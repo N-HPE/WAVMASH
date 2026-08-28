@@ -717,32 +717,61 @@ def _get_public_weekly_chart(key: str, limit: int = 50) -> dict[str, Any]:
         rank = int(chart_data.get("currentRank") or (len(tracks) + 1))
         prev = chart_data.get("previousRank")
         status = chart_data.get("entryStatus") or ""
-        am = entry.get("albumMetadata") or {}
-        album_id = _uri_id(am.get("albumUri"))
-        artists = am.get("artists") or []
-        artist = _artist_names(artists)
-        primary = (artists[0].get("name") if artists else "") or ""
-        tracks.append(
-            {
-                "id": album_id,
-                "title": am.get("albumName") or "",
-                "artist": artist,
-                "primary_artist": primary,
-                "album": am.get("albumName") or "",
-                "thumbnail_url": am.get("displayImageUri") or "",
-                "spotify_url": (
-                    f"https://open.spotify.com/album/{album_id}" if album_id else ""
-                ),
-                "preview_url": "",
-                "popularity": 0,
-                "duration_ms": 0,
-                "explicit": False,
-                "rank": rank,
-                "previous_rank": prev,
-                "entry_status": status,
-                "item_type": "album",
-            }
-        )
+
+        if key == "songs":
+            tm = entry.get("trackMetadata") or {}
+            track_id = _uri_id(tm.get("trackUri"))
+            artists = tm.get("artists") or []
+            artist = _artist_names(artists)
+            primary = (artists[0].get("name") if artists else "") or ""
+            tracks.append(
+                {
+                    "id": track_id,
+                    "title": tm.get("trackName") or "",
+                    "artist": artist,
+                    "primary_artist": primary,
+                    "album": "",
+                    "thumbnail_url": tm.get("displayImageUri") or "",
+                    "spotify_url": (
+                        f"https://open.spotify.com/track/{track_id}" if track_id else ""
+                    ),
+                    "preview_url": "",
+                    "popularity": 0,
+                    "duration_ms": 0,
+                    "explicit": False,
+                    "rank": rank,
+                    "previous_rank": prev,
+                    "entry_status": status,
+                    "item_type": "track",
+                }
+            )
+        else:
+            am = entry.get("albumMetadata") or {}
+            album_id = _uri_id(am.get("albumUri"))
+            artists = am.get("artists") or []
+            artist = _artist_names(artists)
+            primary = (artists[0].get("name") if artists else "") or ""
+            tracks.append(
+                {
+                    "id": album_id,
+                    "title": am.get("albumName") or "",
+                    "artist": artist,
+                    "primary_artist": primary,
+                    "album": am.get("albumName") or "",
+                    "thumbnail_url": am.get("displayImageUri") or "",
+                    "spotify_url": (
+                        f"https://open.spotify.com/album/{album_id}" if album_id else ""
+                    ),
+                    "preview_url": "",
+                    "popularity": 0,
+                    "duration_ms": 0,
+                    "explicit": False,
+                    "rank": rank,
+                    "previous_rank": prev,
+                    "entry_status": status,
+                    "item_type": "album",
+                }
+            )
 
     result: dict[str, Any] = {
         "region": key,
