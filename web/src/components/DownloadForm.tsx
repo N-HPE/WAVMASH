@@ -50,7 +50,11 @@ const STAGE_LABELS: Record<string, string> = {
   done: '완료',
 };
 
-export default function DownloadForm() {
+export default function DownloadForm({
+  variant = 'inline',
+}: {
+  variant?: 'inline' | 'stacked';
+}) {
   const [url, setUrl] = useState('');
   const [platform, setPlatform] = useState<'youtube' | 'spotify' | null>(null);
   const { active, progress, error, completedTracks, startDownload, clear } = useDownload();
@@ -92,52 +96,99 @@ export default function DownloadForm() {
     (progress.total ?? 0) > 0;
 
   return (
-    <div className="w-full max-w-2xl mx-auto">
+    <div className="w-full">
       <form onSubmit={handleSubmit}>
-        <div className="relative flex items-center gap-2 glass rounded-xl p-2">
-          <div className="flex-shrink-0 pl-2">
-            {platform ? (
-              <PlatformIcon platform={platform} />
-            ) : (
-              <Download className="h-5 w-5 text-muted-foreground" />
-            )}
+        {variant === 'stacked' ? (
+          <div className="space-y-3">
+            <div className="flex items-center gap-2 rounded-lg border border-border bg-secondary/40 px-3 py-2 min-w-0">
+              <div className="shrink-0">
+                {platform ? (
+                  <PlatformIcon platform={platform} />
+                ) : (
+                  <Download className="h-5 w-5 text-muted-foreground" />
+                )}
+              </div>
+              <input
+                type="url"
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+                placeholder="Spotify / YouTube Music / YouTube URL 붙여넣기..."
+                disabled={active}
+                className="flex-1 min-w-0 bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none disabled:opacity-50"
+              />
+            </div>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handlePaste}
+                disabled={active}
+                className="sm:flex-1 gap-2"
+              >
+                <ClipboardPaste className="h-4 w-4" />
+                클립보드 붙여넣기
+              </Button>
+              <Button
+                type="submit"
+                disabled={!url.trim() || active}
+                className="sm:flex-1 bg-primary text-primary-foreground hover:bg-primary/90 gap-2"
+              >
+                {active ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Download className="h-4 w-4" />
+                )}
+                {active ? '다운로드 중...' : '다운로드 시작'}
+              </Button>
+            </div>
           </div>
-
-          <input
-            type="url"
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            placeholder="YouTube 또는 Spotify 플리/트랙 URL을 입력하세요..."
-            disabled={active}
-            className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none h-10 disabled:opacity-50"
-          />
-
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            onClick={handlePaste}
-            disabled={active}
-            className="flex-shrink-0 text-muted-foreground hover:text-foreground"
-          >
-            <ClipboardPaste className="h-4 w-4" />
-          </Button>
-
-          <Button
-            type="submit"
-            disabled={!url.trim() || active}
-            className="flex-shrink-0 bg-primary text-primary-foreground hover:bg-primary/90 rounded-lg px-5"
-          >
-            {active ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <>
-                <Download className="h-4 w-4 mr-1.5" />
-                다운로드
-              </>
-            )}
-          </Button>
-        </div>
+        ) : (
+          <div className="relative flex flex-col sm:flex-row sm:items-center gap-2 glass rounded-xl p-2 min-w-0">
+            <div className="flex items-center gap-2 min-w-0 flex-1">
+              <div className="shrink-0 pl-1">
+                {platform ? (
+                  <PlatformIcon platform={platform} />
+                ) : (
+                  <Download className="h-5 w-5 text-muted-foreground" />
+                )}
+              </div>
+              <input
+                type="url"
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+                placeholder="YouTube 또는 Spotify URL..."
+                disabled={active}
+                className="flex-1 min-w-0 bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none h-10 disabled:opacity-50"
+              />
+            </div>
+            <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={handlePaste}
+                disabled={active}
+                className="text-muted-foreground hover:text-foreground"
+              >
+                <ClipboardPaste className="h-4 w-4" />
+              </Button>
+              <Button
+                type="submit"
+                disabled={!url.trim() || active}
+                className="bg-primary text-primary-foreground hover:bg-primary/90 rounded-lg px-4 sm:px-5"
+              >
+                {active ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <>
+                    <Download className="h-4 w-4 sm:mr-1.5" />
+                    <span className="hidden sm:inline">다운로드</span>
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
+        )}
       </form>
 
       <AnimatePresence mode="wait">

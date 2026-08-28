@@ -202,9 +202,10 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       const newQueue = queue || [track];
       const idx = newQueue.findIndex((t) => t.track_id === track.track_id);
       const ytId = extractYoutubeId(track.url || track.external_id || track.track_id);
+      const previewUrl = track.preview_url?.trim();
 
-      // A. 만약 로컬 서버에 파일이 있거나, 유튜브 ID가 없는 경우 -> Audio 태그 사용
-      if (track.has_file || !ytId) {
+      // A. Local WAV file on server
+      if (track.has_file) {
         if (ytPlayerRef.current?.pauseVideo) {
           try {
             ytPlayerRef.current.pauseVideo();
@@ -228,8 +229,33 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
           engine: 'audio',
         }));
       }
-      // B. 유튜브 기반 트랙인 경우 -> Background YouTube Player로 즉시 오디오 스트리밍
-      else {
+      // B. Spotify / catalog 30s preview
+      else if (previewUrl) {
+        if (ytPlayerRef.current?.pauseVideo) {
+          try {
+            ytPlayerRef.current.pauseVideo();
+          } catch {}
+        }
+
+        const audio = getAudio();
+        if (audio) {
+          audio.src = previewUrl;
+          audio.play().catch(() => {});
+        }
+
+        setState((prev) => ({
+          ...prev,
+          currentTrack: track,
+          isPlaying: true,
+          progress: 0,
+          currentTime: 0,
+          queue: newQueue,
+          queueIndex: idx >= 0 ? idx : 0,
+          engine: 'audio',
+        }));
+      }
+      // C. YouTube-based track
+      else if (ytId) {
         if (audioRef.current) {
           audioRef.current.pause();
         }
@@ -255,6 +281,26 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
           queue: newQueue,
           queueIndex: idx >= 0 ? idx : 0,
           engine: 'youtube',
+        }));
+      }
+      // D. No playable source — still select track for download UI
+      else {
+        if (audioRef.current) audioRef.current.pause();
+        if (ytPlayerRef.current?.pauseVideo) {
+          try {
+            ytPlayerRef.current.pauseVideo();
+          } catch {}
+        }
+        setState((prev) => ({
+          ...prev,
+          currentTrack: track,
+          isPlaying: false,
+          progress: 0,
+          currentTime: 0,
+          duration: 0,
+          queue: newQueue,
+          queueIndex: idx >= 0 ? idx : 0,
+          engine: 'idle',
         }));
       }
     },

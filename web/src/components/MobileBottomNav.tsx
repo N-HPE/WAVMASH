@@ -18,9 +18,9 @@ export default function MobileBottomNav() {
   const profileHref = user ? `/profile/${profile?.username || user.id}` : '/login';
 
   const NAV_BUTTONS = [
-    { label: '피드', href: '/', icon: Flame },
-    { label: '탐색', href: '/library', icon: Compass },
-    { label: '소장하기', href: '/download', icon: PlusSquare },
+    { label: '홈', href: '/', icon: Flame },
+    { label: '검색', href: '/search', icon: Compass },
+    { label: '다운로드', href: '/download', icon: PlusSquare },
     { label: '플레이리스트', href: '/playlists', icon: Disc3 },
     { label: '프로필', href: profileHref, icon: User },
   ];

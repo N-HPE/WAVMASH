@@ -23,6 +23,43 @@ export interface Track {
   dominant_color?: string;
   format?: string;
   external_id?: string;
+  preview_url?: string;
+  popularity?: number;
+  duration_ms?: number;
+}
+
+export interface CatalogTrack {
+  id: string;
+  title: string;
+  artist: string;
+  primary_artist: string;
+  album: string;
+  thumbnail_url: string;
+  spotify_url: string;
+  preview_url: string;
+  popularity: number;
+  duration_ms: number;
+  explicit?: boolean;
+}
+
+export interface CatalogArtist {
+  id: string;
+  name: string;
+  image_url: string;
+  followers: number;
+  genres: string[];
+  spotify_url: string;
+  popularity: number;
+}
+
+export interface CatalogSearchResult {
+  artists: CatalogArtist[];
+  tracks: CatalogTrack[];
+}
+
+export interface CatalogArtistProfile {
+  artist: CatalogArtist;
+  top_tracks: CatalogTrack[];
 }
 
 

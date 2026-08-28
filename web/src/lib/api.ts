@@ -312,6 +312,20 @@ class WaveMashAPI {
     );
   }
 
+  async searchCatalog(query: string): Promise<import('./types').CatalogSearchResult> {
+    return this.fetch<import('./types').CatalogSearchResult>(
+      `/api/catalog/search${this.buildQueryString({ q: query })}`
+    );
+  }
+
+  async getCatalogArtist(
+    artistId: string
+  ): Promise<import('./types').CatalogArtistProfile> {
+    return this.fetch<import('./types').CatalogArtistProfile>(
+      `/api/catalog/artists/${encodeURIComponent(artistId)}`
+    );
+  }
+
   /* ── Spotify Sync Endpoints ── */
 
   async getSpotifySyncConfigs(): Promise<import('./types').SpotifySyncConfig[]> {

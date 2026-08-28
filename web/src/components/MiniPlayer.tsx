@@ -79,7 +79,13 @@ export default function MiniPlayer() {
             {/* ── Left: Track Info ── */}
             <div className="flex items-center gap-3 min-w-0 w-[200px] flex-shrink-0">
               <div className="h-12 w-12 flex-shrink-0 overflow-hidden rounded-lg">
-                {currentTrack.has_cover ? (
+                {currentTrack.thumbnail_url ? (
+                  <img
+                    src={currentTrack.thumbnail_url}
+                    alt={currentTrack.title}
+                    className="h-full w-full object-cover"
+                  />
+                ) : currentTrack.has_cover ? (
                   <img
                     src={api.getCoverUrl(currentTrack.track_id, 96)}
                     alt={currentTrack.title}

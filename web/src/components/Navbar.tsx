@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Search,
@@ -12,9 +12,10 @@ import {
   Library,
   ListMusic,
   Download,
+  Compass,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { useState } from 'react';
+import { FormEvent, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import {
   DropdownMenu,
@@ -26,18 +27,27 @@ import {
 } from '@/components/ui/dropdown-menu';
 
 const NAV_ITEMS = [
-  { label: '피드', href: '/', icon: Home },
-  { label: '탐색', href: '/library', icon: Library },
+  { label: '홈', href: '/', icon: Home },
+  { label: '검색', href: '/search', icon: Compass },
+  { label: '라이브러리', href: '/library', icon: Library },
   { label: '플레이리스트', href: '/playlists', icon: ListMusic },
-  { label: '음원 소장', href: '/download', icon: Download },
+  { label: '다운로드', href: '/download', icon: Download },
 ] as const;
 
 export default function Navbar() {
   const pathname = usePathname();
+  const router = useRouter();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [query, setQuery] = useState('');
   const { user, profile, signOut } = useAuth();
 
   const isLoginPage = pathname.startsWith('/login');
+
+  const handleSearch = (e: FormEvent) => {
+    e.preventDefault();
+    const q = query.trim();
+    if (q) router.push(`/search?q=${encodeURIComponent(q)}`);
+  };
 
   if (isLoginPage) {
     return (
@@ -62,22 +72,18 @@ export default function Navbar() {
           </span>
         </Link>
 
-        <div className="flex-1 max-w-xl mx-auto">
+        <form onSubmit={handleSearch} className="flex-1 max-w-xl mx-auto">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <input
-              type="text"
-              placeholder="트랙, 아티스트 검색..."
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="아티스트, 곡 검색..."
               className="w-full h-9 rounded-full bg-secondary border border-border pl-9 pr-4 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:ring-1 focus:ring-[#d4a853]/40 transition-shadow"
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  const q = (e.target as HTMLInputElement).value.trim();
-                  if (q) window.location.href = `/library?search=${encodeURIComponent(q)}`;
-                }
-              }}
             />
           </div>
-        </div>
+        </form>
 
         <div className="flex items-center gap-1 shrink-0">
           {user ? (
@@ -120,9 +126,7 @@ export default function Navbar() {
                     내 프로필
                   </Link>
                 </DropdownMenuItem>
-                <DropdownMenuItem className="cursor-pointer">
-                  설정
-                </DropdownMenuItem>
+                <DropdownMenuItem className="cursor-pointer">설정</DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                   className="text-red-400 focus:text-red-400 cursor-pointer"

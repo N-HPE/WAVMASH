@@ -8,14 +8,16 @@ import {
   ListMusic,
   Download,
   User as UserIcon,
+  Compass,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 
 const NAV_ITEMS = [
-  { label: '피드', href: '/', icon: Home },
-  { label: '탐색', href: '/library', icon: Library },
+  { label: '홈', href: '/', icon: Home },
+  { label: '검색', href: '/search', icon: Compass },
+  { label: '라이브러리', href: '/library', icon: Library },
   { label: '플레이리스트', href: '/playlists', icon: ListMusic },
-  { label: '음원 소장', href: '/download', icon: Download },
+  { label: '다운로드', href: '/download', icon: Download },
 ] as const;
 
 export default function Sidebar() {

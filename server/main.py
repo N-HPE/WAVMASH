@@ -27,6 +27,7 @@ from fastapi.responses import JSONResponse
 from server.config import get_settings
 from server.database import get_archive_cache
 from server.routers import (
+    catalog,
     covers,
     download,
     library,
@@ -144,6 +145,7 @@ app.include_router(library.router, prefix=api_prefix)
 app.include_router(stream.router, prefix=api_prefix)
 app.include_router(users.router, prefix=api_prefix)
 app.include_router(social.router, prefix=api_prefix)
+app.include_router(catalog.router, prefix=api_prefix)
 
 
 # ---------------------------------------------------------------------------

@@ -5,14 +5,12 @@ import Sidebar from '@/components/Sidebar';
 import RightPanel from '@/components/RightPanel';
 
 const STANDALONE_ROUTES = ['/login'];
-const HIDE_RIGHT_PANEL_ROUTES = ['/', '/profile'];
+const WIDE_ROUTES = ['/search', '/artist'];
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const isStandalone = STANDALONE_ROUTES.some((r) => pathname.startsWith(r));
-  const hideRightPanel = HIDE_RIGHT_PANEL_ROUTES.some(
-    (r) => r === '/' ? pathname === '/' : pathname.startsWith(r)
-  );
+  const isWide = WIDE_ROUTES.some((r) => pathname.startsWith(r));
 
   if (isStandalone) {
     return <>{children}</>;
@@ -22,10 +20,10 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     <div className="app-shell">
       <Sidebar />
       <div className="app-main">
-        <div className={`app-content ${pathname === '/' ? 'app-content-wide' : ''}`}>
+        <div className={`app-content ${isWide ? 'app-content-wide' : ''}`}>
           {children}
         </div>
-        {!hideRightPanel && <RightPanel />}
+        {!isWide && <RightPanel />}
       </div>
     </div>
   );
