@@ -44,11 +44,50 @@ function PlatformIcon({ platform }: { platform: 'youtube' | 'spotify' | null }) 
 const STAGE_LABELS: Record<string, string> = {
   listing: '목록 확인',
   downloading: '오디오 다운로드',
-  converting: 'WAV 변환',
-  cover: '앨범 커버',
+  converting: '오디오 변환',
+  cover: '앨범 커버 · 태그',
   metadata: 'BPM · Key 추출',
   done: '완료',
 };
+
+function FormatToggle({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: 'wav' | 'mp3';
+  onChange: (v: 'wav' | 'mp3') => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div className="flex rounded-lg border border-border bg-secondary/30 p-0.5 text-xs">
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => onChange('wav')}
+        className={`flex-1 rounded-md px-3 py-1.5 transition-colors ${
+          value === 'wav'
+            ? 'bg-primary text-primary-foreground'
+            : 'text-muted-foreground hover:text-foreground'
+        }`}
+      >
+        Master · WAV
+      </button>
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => onChange('mp3')}
+        className={`flex-1 rounded-md px-3 py-1.5 transition-colors ${
+          value === 'mp3'
+            ? 'bg-primary text-primary-foreground'
+            : 'text-muted-foreground hover:text-foreground'
+        }`}
+      >
+        Mobile · MP3
+      </button>
+    </div>
+  );
+}
 
 export default function DownloadForm({
   variant = 'inline',
@@ -57,7 +96,8 @@ export default function DownloadForm({
 }) {
   const [url, setUrl] = useState('');
   const [platform, setPlatform] = useState<'youtube' | 'spotify' | null>(null);
-  const { active, progress, error, completedTracks, startDownload, clear } = useDownload();
+  const { active, progress, error, completedTracks, startDownload, clear, exportFormat, setExportFormat } =
+    useDownload();
 
   useEffect(() => {
     setPlatform(detectPlatform(url));
@@ -76,9 +116,9 @@ export default function DownloadForm({
     async (e: React.FormEvent) => {
       e.preventDefault();
       if (!url.trim() || active) return;
-      await startDownload(url.trim());
+      await startDownload(url.trim(), exportFormat);
     },
-    [url, active, startDownload]
+    [url, active, startDownload, exportFormat]
   );
 
   const handleReset = useCallback(() => {
@@ -100,6 +140,11 @@ export default function DownloadForm({
       <form onSubmit={handleSubmit}>
         {variant === 'stacked' ? (
           <div className="space-y-3">
+            <FormatToggle
+              value={exportFormat}
+              onChange={setExportFormat}
+              disabled={active}
+            />
             <div className="flex items-center gap-2 rounded-lg border border-border bg-secondary/40 px-3 py-2 min-w-0">
               <div className="shrink-0">
                 {platform ? (
@@ -138,54 +183,71 @@ export default function DownloadForm({
                 ) : (
                   <Download className="h-4 w-4" />
                 )}
-                {active ? '다운로드 중...' : '다운로드 시작'}
+                {active
+                  ? '변환 중...'
+                  : exportFormat === 'mp3'
+                    ? 'MP3 다운로드'
+                    : 'WAV 다운로드'}
               </Button>
             </div>
+            <p className="text-[10px] text-muted-foreground">
+              파일에 아티스트·제목·커버·BPM·Camelot이 베이킹됩니다. 서버에는 메타만
+              남고 오디오는 다운로드 후 삭제됩니다.
+            </p>
           </div>
         ) : (
-          <div className="relative flex flex-col sm:flex-row sm:items-center gap-2 glass rounded-xl p-2 min-w-0">
-            <div className="flex items-center gap-2 min-w-0 flex-1">
-              <div className="shrink-0 pl-1">
-                {platform ? (
-                  <PlatformIcon platform={platform} />
-                ) : (
-                  <Download className="h-5 w-5 text-muted-foreground" />
-                )}
+          <div className="space-y-2">
+            <FormatToggle
+              value={exportFormat}
+              onChange={setExportFormat}
+              disabled={active}
+            />
+            <div className="relative flex flex-col sm:flex-row sm:items-center gap-2 glass rounded-xl p-2 min-w-0">
+              <div className="flex items-center gap-2 min-w-0 flex-1">
+                <div className="shrink-0 pl-1">
+                  {platform ? (
+                    <PlatformIcon platform={platform} />
+                  ) : (
+                    <Download className="h-5 w-5 text-muted-foreground" />
+                  )}
+                </div>
+                <input
+                  type="url"
+                  value={url}
+                  onChange={(e) => setUrl(e.target.value)}
+                  placeholder="YouTube 또는 Spotify URL..."
+                  disabled={active}
+                  className="flex-1 min-w-0 bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none h-10 disabled:opacity-50"
+                />
               </div>
-              <input
-                type="url"
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
-                placeholder="YouTube 또는 Spotify URL..."
-                disabled={active}
-                className="flex-1 min-w-0 bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none h-10 disabled:opacity-50"
-              />
-            </div>
-            <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                onClick={handlePaste}
-                disabled={active}
-                className="text-muted-foreground hover:text-foreground"
-              >
-                <ClipboardPaste className="h-4 w-4" />
-              </Button>
-              <Button
-                type="submit"
-                disabled={!url.trim() || active}
-                className="bg-primary text-primary-foreground hover:bg-primary/90 rounded-lg px-4 sm:px-5"
-              >
-                {active ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <>
-                    <Download className="h-4 w-4 sm:mr-1.5" />
-                    <span className="hidden sm:inline">다운로드</span>
-                  </>
-                )}
-              </Button>
+              <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  onClick={handlePaste}
+                  disabled={active}
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  <ClipboardPaste className="h-4 w-4" />
+                </Button>
+                <Button
+                  type="submit"
+                  disabled={!url.trim() || active}
+                  className="bg-primary text-primary-foreground hover:bg-primary/90 rounded-lg px-4 sm:px-5"
+                >
+                  {active ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <>
+                      <Download className="h-4 w-4 sm:mr-1.5" />
+                      <span className="hidden sm:inline">
+                        {exportFormat === 'mp3' ? 'MP3' : 'WAV'}
+                      </span>
+                    </>
+                  )}
+                </Button>
+              </div>
             </div>
           </div>
         )}
@@ -271,7 +333,8 @@ export default function DownloadForm({
                     다운로드 완료!
                     {completedTracks.length > 1
                       ? ` (${completedTracks.length}곡)`
-                      : ''}
+                      : ''}{' '}
+                    — 파일이 기기로 저장됩니다
                   </span>
                 </div>
                 {completedTracks[0] && (

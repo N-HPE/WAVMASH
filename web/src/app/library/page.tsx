@@ -14,6 +14,9 @@ import {
   SlidersHorizontal,
   Download,
   Music,
+  Disc3,
+  AudioLines,
+  Share2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -27,6 +30,8 @@ import api from '@/lib/api';
 import type { Track, ViewMode, SortField, SortOrder } from '@/lib/types';
 import TrackCard from '@/components/TrackCard';
 import TrackRow from '@/components/TrackRow';
+import { CrateGrid, HarmonicCrate } from '@/components/CrateViews';
+import DigShareCard from '@/components/DigShareCard';
 import Link from 'next/link';
 import { requestCoverColor } from '@/lib/coverColors';
 
@@ -43,7 +48,7 @@ function LibraryPageInner() {
   const [tracks, setTracks] = useState<Track[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<ViewMode>('list');
+  const [viewMode, setViewMode] = useState<ViewMode>('crate');
   const [search, setSearch] = useState(searchParams.get('search') || '');
   const [genre, setGenre] = useState(searchParams.get('genre') || '');
   const [sortBy, setSortBy] = useState<SortField>(
@@ -51,8 +56,9 @@ function LibraryPageInner() {
   );
   const [sortOrder] = useState<SortOrder>('desc');
   const [genres, setGenres] = useState<string[]>([]);
+  const [harmonicAnchor, setHarmonicAnchor] = useState<Track | null>(null);
+  const [showDigShare, setShowDigShare] = useState(false);
 
-  // Fetch genres for filter
   useEffect(() => {
     api
       .getGenres()
@@ -60,7 +66,6 @@ function LibraryPageInner() {
       .catch(() => {});
   }, []);
 
-  // Fetch tracks
   const fetchTracks = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -74,14 +79,12 @@ function LibraryPageInner() {
       });
       setTracks(data);
 
-      // 페이지 로드 시 색상 배치 prefetch (카드 마운트 전에 캐시 워밍)
       const needColor = data
         .filter((t) => t.has_cover && !t.dominant_color)
         .map((t) => t.track_id);
       if (needColor.length) {
         void Promise.all(needColor.map((id) => requestCoverColor(id)));
       } else {
-        // 서버에 이미 dominant_color가 있으면 IndexedDB에 심어 둠
         for (const t of data) {
           if (t.dominant_color) {
             void requestCoverColor(t.track_id, t.dominant_color);
@@ -102,7 +105,6 @@ function LibraryPageInner() {
     return () => clearTimeout(timer);
   }, [fetchTracks]);
 
-  // Memoize sorted label
   const currentSortLabel = useMemo(
     () => SORT_OPTIONS.find((o) => o.value === sortBy)?.label || '정렬',
     [sortBy]
@@ -110,87 +112,105 @@ function LibraryPageInner() {
 
   return (
     <div className="py-4 space-y-4">
-      {/* ── Header ── */}
       <div className="feed-card p-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <h1 className="text-xl font-bold">라이브러리</h1>
 
           <div className="flex items-center gap-2 flex-wrap">
-          {/* Search */}
-          <div className="relative flex-1 min-w-[200px] sm:max-w-xs">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="검색..."
-              className="w-full h-9 rounded-lg bg-white/5 border border-white/6 pl-9 pr-3 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:ring-1 focus:ring-[#d4a853]/50 transition-shadow"
-            />
-          </div>
+            <div className="relative flex-1 min-w-[200px] sm:max-w-xs">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="검색..."
+                className="w-full h-9 rounded-lg bg-white/5 border border-white/6 pl-9 pr-3 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:ring-1 focus:ring-[#d4a853]/50 transition-shadow"
+              />
+            </div>
 
-          {/* Genre Filter */}
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              render={<Button variant="outline" size="sm" className="h-9 gap-1.5" />}
-            >
-              <SlidersHorizontal className="h-3.5 w-3.5" />
-              {genre || '장르'}
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="max-h-60 overflow-y-auto">
-              <DropdownMenuItem onClick={() => setGenre('')}>
-                전체
-              </DropdownMenuItem>
-              {genres.map((g) => (
-                <DropdownMenuItem key={g} onClick={() => setGenre(g)}>
-                  {g}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={<Button variant="outline" size="sm" className="h-9 gap-1.5" />}
+              >
+                <SlidersHorizontal className="h-3.5 w-3.5" />
+                {genre || '장르'}
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="max-h-60 overflow-y-auto">
+                <DropdownMenuItem onClick={() => setGenre('')}>전체</DropdownMenuItem>
+                {genres.map((g) => (
+                  <DropdownMenuItem key={g} onClick={() => setGenre(g)}>
+                    {g}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
 
-          {/* Sort */}
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              render={<Button variant="outline" size="sm" className="h-9" />}
-            >
-              {currentSortLabel}
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              {SORT_OPTIONS.map((opt) => (
-                <DropdownMenuItem
-                  key={opt.value}
-                  onClick={() => setSortBy(opt.value)}
-                >
-                  {opt.label}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={<Button variant="outline" size="sm" className="h-9" />}
+              >
+                {currentSortLabel}
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {SORT_OPTIONS.map((opt) => (
+                  <DropdownMenuItem key={opt.value} onClick={() => setSortBy(opt.value)}>
+                    {opt.label}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
 
-          {/* View Toggle */}
-          <div className="flex items-center gap-0.5 glass rounded-lg p-0.5">
             <Button
-              variant={viewMode === 'grid' ? 'secondary' : 'ghost'}
-              size="icon"
-              className="h-8 w-8"
-              onClick={() => setViewMode('grid')}
+              variant="outline"
+              size="sm"
+              className="h-9 gap-1.5"
+              onClick={() => setShowDigShare(true)}
+              disabled={tracks.length === 0}
             >
-              <LayoutGrid className="h-3.5 w-3.5" />
+              <Share2 className="h-3.5 w-3.5" />
+              Dig Card
             </Button>
-            <Button
-              variant={viewMode === 'list' ? 'secondary' : 'ghost'}
-              size="icon"
-              className="h-8 w-8"
-              onClick={() => setViewMode('list')}
-            >
-              <List className="h-3.5 w-3.5" />
-            </Button>
-          </div>
+
+            <div className="flex items-center gap-0.5 glass rounded-lg p-0.5">
+              <Button
+                variant={viewMode === 'crate' ? 'secondary' : 'ghost'}
+                size="icon"
+                className="h-8 w-8"
+                title="Vinyl Crate"
+                onClick={() => setViewMode('crate')}
+              >
+                <Disc3 className="h-3.5 w-3.5" />
+              </Button>
+              <Button
+                variant={viewMode === 'harmonic' ? 'secondary' : 'ghost'}
+                size="icon"
+                className="h-8 w-8"
+                title="Harmonic Crate"
+                onClick={() => setViewMode('harmonic')}
+              >
+                <AudioLines className="h-3.5 w-3.5" />
+              </Button>
+              <Button
+                variant={viewMode === 'grid' ? 'secondary' : 'ghost'}
+                size="icon"
+                className="h-8 w-8"
+                onClick={() => setViewMode('grid')}
+              >
+                <LayoutGrid className="h-3.5 w-3.5" />
+              </Button>
+              <Button
+                variant={viewMode === 'list' ? 'secondary' : 'ghost'}
+                size="icon"
+                className="h-8 w-8"
+                onClick={() => setViewMode('list')}
+              >
+                <List className="h-3.5 w-3.5" />
+              </Button>
+            </div>
           </div>
         </div>
       </div>
 
-      {/* ── Content ── */}
       {loading ? (
         <div className="feed-card divide-y divide-border">
           {[...Array(8)].map((_, i) => (
@@ -213,9 +233,7 @@ function LibraryPageInner() {
         >
           <div className="glass rounded-2xl p-12 max-w-md">
             <Music className="h-16 w-16 text-white/10 mx-auto mb-4" />
-            <h2 className="text-xl font-medium mb-2">
-              라이브러리가 비어있습니다
-            </h2>
+            <h2 className="text-xl font-medium mb-2">라이브러리가 비어있습니다</h2>
             <p className="text-sm text-muted-foreground mb-6">
               첫 번째 트랙을 다운로드하여 컬렉션을 시작하세요.
             </p>
@@ -227,6 +245,14 @@ function LibraryPageInner() {
             </Link>
           </div>
         </motion.div>
+      ) : viewMode === 'crate' ? (
+        <CrateGrid tracks={tracks} />
+      ) : viewMode === 'harmonic' ? (
+        <HarmonicCrate
+          tracks={tracks}
+          anchor={harmonicAnchor || tracks[0] || null}
+          onSelectAnchor={setHarmonicAnchor}
+        />
       ) : viewMode === 'grid' ? (
         <AnimatePresence mode="popLayout">
           <motion.div
@@ -257,6 +283,10 @@ function LibraryPageInner() {
             ))}
           </motion.div>
         </AnimatePresence>
+      )}
+
+      {showDigShare && (
+        <DigShareCard tracks={tracks} onClose={() => setShowDigShare(false)} />
       )}
     </div>
   );

@@ -215,7 +215,9 @@ def find_version_tracks(
 
 
 def record_has_cover(record: dict[str, Any]) -> bool:
-    """트랙의 앨범 커버가 존재하는지 확인합니다."""
+    """트랙의 앨범 커버가 존재하는지 확인합니다 (사이드카 / CDN)."""
+    if str(record.get("thumbnail_url") or "").startswith("http"):
+        return True
     path = str(record.get("path") or record.get("local_path") or "")
     if not path or not os.path.isfile(path):
         return False

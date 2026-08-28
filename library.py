@@ -221,15 +221,20 @@ def sanitize_path_part(name, fallback=UNKNOWN):
 
 
 def parse_artist_title(title, fallback_artist):
-    title = (title or '').strip()
-    fallback_artist = (fallback_artist or UNKNOWN).strip()
-    for sep in (' - ', ' – ', ' — ', ' | '):
-        if sep in title:
-            artist, track = title.split(sep, 1)
-            artist, track = artist.strip(), track.strip()
-            if artist and track:
-                return artist, track
-    return fallback_artist, title or UNKNOWN
+    try:
+        from meta_parse import parse_artist_title as _parse
+
+        return _parse(title, fallback_artist)
+    except Exception:
+        title = (title or "").strip()
+        fallback_artist = (fallback_artist or UNKNOWN).strip()
+        for sep in (" - ", " – ", " — ", " | "):
+            if sep in title:
+                artist, track = title.split(sep, 1)
+                artist, track = artist.strip(), track.strip()
+                if artist and track:
+                    return artist, track
+        return fallback_artist, title or UNKNOWN
 
 
 _VERSION_MARKERS = [
@@ -284,7 +289,22 @@ def extract_metadata(info):
         or info.get('uploader')
         or UNKNOWN
     )
-    artist, title = parse_artist_title(raw_title, fallback_artist)
+    try:
+        from meta_parse import clean_channel_artist, strip_junk
+
+        fallback_artist = clean_channel_artist(str(fallback_artist))
+        # Prefer yt-dlp track+artist when both exist and title isn't a blob
+        if info.get('track') and info.get('artist'):
+            artist = sanitize_path_part(str(info['artist']), UNKNOWN)
+            title = sanitize_path_part(strip_junk(str(info['track'])), UNKNOWN)
+        else:
+            artist, title = parse_artist_title(raw_title, fallback_artist)
+            artist = sanitize_path_part(artist, UNKNOWN)
+            title = sanitize_path_part(strip_junk(title), UNKNOWN)
+    except Exception:
+        artist, title = parse_artist_title(raw_title, fallback_artist)
+        artist = sanitize_path_part(artist, UNKNOWN)
+        title = sanitize_path_part(title, UNKNOWN)
 
     album = info.get('album') or info.get('album_name')
     if not album and info.get('playlist'):
@@ -1538,6 +1558,8 @@ def _write_riff_info_with_ffmpeg(file_path, record):
 
 def write_wav_tags(file_path, record, cover_data=None, cover_mime='image/jpeg'):
     try:
+        from mutagen.id3 import TXXX
+
         # 1) RIFF INFO (Explorer 표시용) → 2) ID3 (커버 포함)
         _write_riff_info_with_ffmpeg(file_path, record)
 
@@ -1546,7 +1568,9 @@ def write_wav_tags(file_path, record, cover_data=None, cover_mime='image/jpeg'):
             audio.add_tags()
         tags = audio.tags
 
-        for frame in ('TIT2', 'TPE1', 'TPE2', 'TALB', 'TCON', 'TBPM', 'TKEY', 'TDRC', 'COMM', 'APIC'):
+        for frame in (
+            'TIT2', 'TPE1', 'TPE2', 'TALB', 'TCON', 'TBPM', 'TKEY', 'TDRC', 'COMM', 'APIC', 'TXXX'
+        ):
             tags.delall(frame)
 
         tags.add(TIT2(encoding=3, text=record.get('title', '')))
@@ -1554,12 +1578,24 @@ def write_wav_tags(file_path, record, cover_data=None, cover_mime='image/jpeg'):
         tags.add(TPE2(encoding=3, text=record.get('artist', '')))
         tags.add(TALB(encoding=3, text=record.get('album', SINGLES_ALBUM)))
         tags.add(TCON(encoding=3, text=record.get('genre', UNKNOWN)))
-        tags.add(TBPM(encoding=3, text=str(record.get('bpm', ''))))
-        tags.add(TKEY(encoding=3, text=str(record.get('key', ''))))
+        tags.add(TBPM(encoding=3, text=str(record.get('bpm', '') or '')))
+        key_text = str(record.get('key') or '')
+        camelot = str(record.get('camelot_key') or '')
+        tags.add(TKEY(encoding=3, text=key_text))
+        if camelot:
+            tags.add(TXXX(encoding=3, desc='CAMELOT', text=camelot))
+        track_id = str(record.get('track_id') or record.get('id') or '')
+        if track_id:
+            tags.add(TXXX(encoding=3, desc='WAVEMASH_ID', text=track_id))
         if record.get('year'):
             tags.add(TDRC(encoding=3, text=str(record['year'])))
+        comment_bits = []
         if record.get('url'):
-            tags.add(COMM(encoding=3, lang='eng', desc='Source', text=record['url']))
+            comment_bits.append(str(record['url']))
+        if camelot:
+            comment_bits.append(f'Camelot {camelot}')
+        if comment_bits:
+            tags.add(COMM(encoding=3, lang='eng', desc='Source', text=' | '.join(comment_bits)))
 
         cover = cover_data or record.get('cover_data')
         mime = record.get('cover_mime') or cover_mime
@@ -1581,6 +1617,99 @@ def write_wav_tags(file_path, record, cover_data=None, cover_mime='image/jpeg'):
     except Exception as e:
         print(f'[Tag Write Error] {e}')
         return False
+
+
+def write_mp3_tags(file_path, record, cover_data=None, cover_mime='image/jpeg'):
+    """Bake ID3v2 tags into an MP3 for phone / local players."""
+    try:
+        from mutagen.id3 import (
+            ID3,
+            ID3NoHeaderError,
+            TIT2,
+            TPE1,
+            TPE2,
+            TALB,
+            TCON,
+            TBPM,
+            TKEY,
+            TDRC,
+            COMM,
+            APIC,
+            TXXX,
+        )
+        from mutagen.mp3 import MP3
+
+        try:
+            tags = ID3(file_path)
+        except ID3NoHeaderError:
+            tags = ID3()
+
+        tags.delall('TIT2')
+        tags.delall('TPE1')
+        tags.delall('TPE2')
+        tags.delall('TALB')
+        tags.delall('TCON')
+        tags.delall('TBPM')
+        tags.delall('TKEY')
+        tags.delall('TDRC')
+        tags.delall('COMM')
+        tags.delall('APIC')
+        tags.delall('TXXX')
+
+        tags.add(TIT2(encoding=3, text=record.get('title', '')))
+        tags.add(TPE1(encoding=3, text=record.get('artist', '')))
+        tags.add(TPE2(encoding=3, text=record.get('artist', '')))
+        tags.add(TALB(encoding=3, text=record.get('album', SINGLES_ALBUM)))
+        tags.add(TCON(encoding=3, text=record.get('genre', UNKNOWN)))
+        tags.add(TBPM(encoding=3, text=str(record.get('bpm', '') or '')))
+        tags.add(TKEY(encoding=3, text=str(record.get('key') or '')))
+        camelot = str(record.get('camelot_key') or '')
+        if camelot:
+            tags.add(TXXX(encoding=3, desc='CAMELOT', text=camelot))
+        track_id = str(record.get('track_id') or record.get('id') or '')
+        if track_id:
+            tags.add(TXXX(encoding=3, desc='WAVEMASH_ID', text=track_id))
+        if record.get('year'):
+            tags.add(TDRC(encoding=3, text=str(record['year'])))
+        if record.get('url'):
+            tags.add(COMM(encoding=3, lang='eng', desc='Source', text=str(record['url'])))
+
+        cover = cover_data or record.get('cover_data')
+        mime = cover_mime or 'image/jpeg'
+        if cover:
+            tags.add(
+                APIC(encoding=3, mime=mime, type=3, desc='Cover', data=cover)
+            )
+
+        tags.save(file_path, v2_version=3)
+        # Touch bitrate metadata cache
+        try:
+            MP3(file_path)
+        except Exception:
+            pass
+        return True
+    except Exception as e:
+        print(f'[MP3 Tag Write Error] {e}')
+        return False
+
+
+def export_filename(record: dict, ext: str = 'wav') -> str:
+    """Safe download filename: Artist - Title.ext"""
+    artist = sanitize_path_part(str(record.get('artist') or 'Unknown'), 'Unknown')
+    title = sanitize_path_part(str(record.get('title') or 'Track'), 'Track')
+    ext = ext.lstrip('.').lower() or 'wav'
+    name = f'{artist} - {title}.{ext}'
+    return name[:180]
+
+
+def is_ephemeral_mode() -> bool:
+    """Render / cloud: convert once, stream to browser, delete local binary."""
+    v = os.environ.get('WAVMASH_EPHEMERAL', '').strip().lower()
+    if v in ('0', 'false', 'no', 'off'):
+        return False
+    if v in ('1', 'true', 'yes', 'on'):
+        return True
+    return bool(os.environ.get('RENDER'))
 
 
 def read_wav_tags(file_path):

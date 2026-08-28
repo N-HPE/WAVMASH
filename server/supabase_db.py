@@ -159,9 +159,10 @@ def upsert_track_to_supabase(record: dict[str, Any]) -> bool:
         "url": str(record.get("url") or ""),
         "external_id": str(record.get("external_id") or ""),
         "thumbnail_url": str(record.get("thumbnail_url") or ""),
-        "local_path": str(record.get("local_path") or record.get("path") or ""),
-        "has_cover": bool(record.get("has_cover", False)),
-        "has_file": bool(record.get("has_file", False)),
+        # Never store audio binaries — paths cleared in ephemeral / cloud mode
+        "local_path": "" if record.get("ephemeral") else str(record.get("local_path") or record.get("path") or ""),
+        "has_cover": bool(record.get("has_cover", False) or bool(record.get("thumbnail_url"))),
+        "has_file": False if record.get("ephemeral") else bool(record.get("has_file", False)),
         "dominant_color": record.get("dominant_color"),
         "analysis": record.get("analysis") if isinstance(record.get("analysis"), dict) else {},
         "mix_data": record.get("mix_data") if isinstance(record.get("mix_data"), dict) else {},

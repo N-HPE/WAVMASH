@@ -1,10 +1,12 @@
-"""다운로드 서비스 — YouTube/Spotify 다운로드 작업 관리.
+"""다운로드 서비스 — YouTube/Spotify 일회성 변환 + SSE + 동시성 1.
 
-Background 스레드에서 다운로드를 실행하고 SSE로 진행 상황을 스트리밍합니다.
+Render Free(512MB) 보호: 동시 변환 1개.
+Ephemeral: 태그 베이킹된 파일을 브라우저로 보낸 뒤 GC.
 """
 
 from __future__ import annotations
 
+import os
 import threading
 import time
 import uuid
@@ -12,14 +14,12 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Callable
 
-from library import ensure_track_id
+from library import ensure_track_id, is_ephemeral_mode
 from spotify_pipeline import is_spotify_url, process_spotify_url_sync
 from pipeline import process_url_sync
 
 
 class JobStatus(str, Enum):
-    """다운로드 작업 상태."""
-
     PENDING = "pending"
     DOWNLOADING = "downloading"
     COMPLETED = "completed"
@@ -28,10 +28,9 @@ class JobStatus(str, Enum):
 
 @dataclass
 class DownloadJob:
-    """개별 다운로드 작업 정보."""
-
     job_id: str
     url: str
+    export_format: str = "wav"
     status: JobStatus = JobStatus.PENDING
     progress: float = 0.0
     message: str = ""
@@ -45,21 +44,19 @@ class DownloadJob:
     skipped: int | None = None
     records: list[dict[str, Any]] = field(default_factory=list)
     created_at: float = field(default_factory=time.time)
+    exported: bool = False
     _listeners: list[Callable] = field(default_factory=list, repr=False)
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
     def add_listener(self, callback: Callable[[dict[str, Any]], None]) -> None:
-        """SSE 리스너를 추가합니다."""
         with self._lock:
             self._listeners.append(callback)
 
     def remove_listener(self, callback: Callable[[dict[str, Any]], None]) -> None:
-        """SSE 리스너를 제거합니다."""
         with self._lock:
             self._listeners = [cb for cb in self._listeners if cb is not callback]
 
     def notify(self) -> None:
-        """등록된 모든 리스너에게 현재 상태를 전파합니다."""
         data = self.to_event_dict()
         with self._lock:
             for cb in list(self._listeners):
@@ -74,7 +71,6 @@ class DownloadJob:
         msg: str,
         info: dict[str, Any] | None = None,
     ) -> None:
-        """진행률·메시지를 갱신하고 리스너에 알립니다."""
         self.progress = max(0.0, min(1.0, float(pct)))
         self.message = msg or self.message
         if info:
@@ -97,13 +93,14 @@ class DownloadJob:
         self.notify()
 
     def to_event_dict(self) -> dict[str, Any]:
-        """SSE 이벤트로 변환합니다."""
         result: dict[str, Any] = {
             "job_id": self.job_id,
             "status": self.status.value,
             "progress": round(self.progress, 3),
             "message": self.message,
             "stage": self.stage or "",
+            "format": self.export_format,
+            "ephemeral": is_ephemeral_mode(),
         }
         if self.error:
             result["error"] = self.error
@@ -125,20 +122,21 @@ class DownloadJob:
 
 
 class DownloadService:
-    """다운로드 작업 큐 관리자."""
-
-    _MAX_CONCURRENT = 2
-    _JOB_TTL = 3600
+    # Render Free 512MB: yt-dlp + ffmpeg 동시 2개면 OOM — 강제 1
+    _MAX_CONCURRENT = 1
+    _JOB_TTL = 1800  # 30분 후 job + export 파일 GC
 
     def __init__(self) -> None:
         self._jobs: dict[str, DownloadJob] = {}
         self._lock = threading.Lock()
         self._semaphore = threading.Semaphore(self._MAX_CONCURRENT)
 
-    def create_job(self, url: str) -> DownloadJob:
-        """새 다운로드 작업을 생성하고 백그라운드 스레드에서 실행합니다."""
+    def create_job(self, url: str, export_format: str = "wav") -> DownloadJob:
+        fmt = (export_format or "wav").lower().strip()
+        if fmt not in ("wav", "mp3"):
+            fmt = "wav"
         job_id = str(uuid.uuid4())
-        job = DownloadJob(job_id=job_id, url=url.strip())
+        job = DownloadJob(job_id=job_id, url=url.strip(), export_format=fmt)
 
         with self._lock:
             self._cleanup_old_jobs()
@@ -161,12 +159,39 @@ class DownloadService:
         with self._lock:
             return list(self._jobs.values())
 
+    def gc_job_exports(self, job: DownloadJob) -> None:
+        """브라우저로 내보낸 뒤 / TTL 만료 시 바이너리 삭제."""
+        for rec in job.records:
+            for key in ("export_path", "path", "local_path"):
+                p = str(rec.get(key) or "")
+                if p and os.path.isfile(p) and ("_temp" in p.replace("\\", "/") or rec.get("ephemeral")):
+                    try:
+                        os.remove(p)
+                    except OSError:
+                        pass
+            # sidecar next to export
+            for key in ("export_path", "path"):
+                p = str(rec.get(key) or "")
+                if not p:
+                    continue
+                cover = os.path.join(os.path.dirname(p), "cover.jpg")
+                if os.path.isfile(cover) and "_temp" in cover.replace("\\", "/"):
+                    try:
+                        os.remove(cover)
+                    except OSError:
+                        pass
+            rec["export_path"] = ""
+            if rec.get("ephemeral"):
+                rec["path"] = ""
+                rec["local_path"] = ""
+        job.exported = True
+
     def _run_download(self, job: DownloadJob) -> None:
         self._semaphore.acquire()
         try:
             job.status = JobStatus.DOWNLOADING
             job.stage = "listing"
-            job.message = "다운로드 준비 중..."
+            job.message = "다운로드 준비 중... (대기열 1개씩 처리)"
             job.notify()
 
             def progress_callback(
@@ -177,11 +202,12 @@ class DownloadService:
                 job.apply_progress(pct, msg, info)
 
             url = job.url
+            fmt = job.export_format
 
             if is_spotify_url(url):
-                result = process_spotify_url_sync(url, progress_callback)
+                result = process_spotify_url_sync(url, progress_callback, export_format=fmt)
             else:
-                result = process_url_sync(url, progress_callback)
+                result = process_url_sync(url, progress_callback, export_format=fmt)
 
             if isinstance(result, dict):
                 if "records" in result:
@@ -202,9 +228,10 @@ class DownloadService:
             job.stage = "done"
             job.current = len(job.records) if job.records else job.current
             job.remaining = 0
-            job.message = f"완료! ({len(job.records)}곡 다운로드)"
+            job.message = f"완료! ({len(job.records)}곡) — 브라우저로 파일 저장하세요"
             job.notify()
 
+            # Ephemeral: schedule GC if client never downloads (30 min via TTL)
         except Exception as exc:
             job.status = JobStatus.FAILED
             job.stage = "error"
@@ -223,6 +250,9 @@ class DownloadService:
             and (now - job.created_at) > self._JOB_TTL
         ]
         for jid in expired:
+            job = self._jobs.get(jid)
+            if job:
+                self.gc_job_exports(job)
             del self._jobs[jid]
 
 

@@ -132,11 +132,47 @@ class WaveMashAPI {
 
   /* ── Download Endpoints ── */
 
-  async startDownload(url: string): Promise<{ job_id: string }> {
-    return this.fetch<{ job_id: string }>('/api/download', {
+  async startDownload(
+    url: string,
+    format: 'wav' | 'mp3' = 'wav'
+  ): Promise<{ job_id: string; format?: string }> {
+    return this.fetch<{ job_id: string; format?: string }>('/api/download', {
       method: 'POST',
-      body: JSON.stringify({ url }),
+      body: JSON.stringify({ url, format }),
     });
+  }
+
+  /** 태그 베이킹된 오디오 바이너리를 브라우저로 받아 로컬 저장. */
+  async downloadExportBlob(
+    jobId: string,
+    trackId: string,
+    fallbackName?: string
+  ): Promise<void> {
+    const url = `${this.baseUrl}/api/download/export/${encodeURIComponent(jobId)}/${encodeURIComponent(trackId)}`;
+    const res = await fetch(url);
+    if (!res.ok) {
+      const detail = await res.text().catch(() => '');
+      throw new Error(detail || `Export failed (${res.status})`);
+    }
+    const blob = await res.blob();
+    let filename = fallbackName || 'track.wav';
+    const cd = res.headers.get('Content-Disposition') || '';
+    const m = cd.match(/filename\*=UTF-8''([^;]+)|filename="?([^";]+)"?/i);
+    if (m) {
+      try {
+        filename = decodeURIComponent(m[1] || m[2]);
+      } catch {
+        filename = m[1] || m[2] || filename;
+      }
+    }
+    const a = document.createElement('a');
+    const objectUrl = URL.createObjectURL(blob);
+    a.href = objectUrl;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(objectUrl);
   }
 
   subscribeDownloadProgress(

@@ -155,6 +155,15 @@ export interface GenreInfo {
 
 export interface DownloadRequest {
   url: string;
+  /** Master = wav, Mobile = mp3 */
+  format?: "wav" | "mp3";
+}
+
+export interface DownloadExport {
+  track_id: string;
+  export_name: string;
+  format: string;
+  url: string;
 }
 
 export interface DownloadProgress {
@@ -172,6 +181,9 @@ export interface DownloadProgress {
   track_count?: number;
   track?: Track;
   tracks?: Track[];
+  exports?: DownloadExport[];
+  ephemeral?: boolean;
+  format?: string;
   error?: string;
 }
 
@@ -183,7 +195,7 @@ export interface PaginatedResponse<T> {
   total_pages: number;
 }
 
-export type ViewMode = "grid" | "list";
+export type ViewMode = "grid" | "list" | "crate" | "harmonic";
 export type SortField = "title" | "artist" | "bpm" | "year" | "genre" | "recent";
 export type SortOrder = "asc" | "desc";
 

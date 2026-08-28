@@ -184,14 +184,30 @@ def get_cover_bytes(record: dict[str, Any]) -> tuple[bytes | None, str | None]:
 
     1. 사이드카 파일 (cover.jpg / cover.png)
     2. WAV 임베디드 APIC 태그
+    3. thumbnail_url (CDN) — ephemeral / 클라우드 메타 전용 아카이브
 
     Returns:
         ``(image_data, mime_type)`` 또는 ``(None, None)``
     """
     path = str(record.get("path") or record.get("local_path") or "")
-    if not path or not os.path.isfile(path):
-        return None, None
-    return read_cover_bytes_for_wav(path)
+    if path and os.path.isfile(path):
+        data, mime = read_cover_bytes_for_wav(path)
+        if data:
+            return data, mime
+
+    thumb = str(record.get("thumbnail_url") or "").strip()
+    if thumb.startswith("http"):
+        try:
+            import urllib.request
+
+            req = urllib.request.Request(thumb, headers={"User-Agent": "WaveMash/1.0"})
+            with urllib.request.urlopen(req, timeout=12) as resp:
+                data = resp.read()
+                mime = resp.headers.get_content_type() or "image/jpeg"
+                return data, mime
+        except Exception:
+            return None, None
+    return None, None
 
 
 def get_cover_path(record: dict[str, Any]) -> str | None:

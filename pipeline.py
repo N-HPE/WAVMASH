@@ -2,6 +2,7 @@ import glob
 import os
 import asyncio
 import threading
+import time
 import yt_dlp
 import ffmpeg
 import static_ffmpeg
@@ -15,8 +16,12 @@ from library import (
     plan_track_path,
     ensure_parent_dir,
     write_wav_tags,
+    write_mp3_tags,
     resolve_cover_bytes,
     save_album_cover_sidecar,
+    is_ephemeral_mode,
+    export_filename,
+    sanitize_path_part,
 )
 from env_loader import ensure_env_loaded
 
@@ -198,14 +203,33 @@ def finalize_record(
     *,
     progress_cover=0.88,
     progress_meta=0.92,
+    export_format: str = 'wav',
 ):
     meta = normalize_artist_meta(meta)
-    final_wav = plan_track_path(meta, bpm=bpm, key=key)
-    ensure_parent_dir(final_wav)
+    export_format = (export_format or 'wav').lower().strip()
+    if export_format not in ('wav', 'mp3'):
+        export_format = 'wav'
+    ephemeral = is_ephemeral_mode()
+
+    from library import prepare_new_record, safe_rename
+
+    if ephemeral:
+        export_dir = os.path.join(TEMP_DIR, 'export')
+        os.makedirs(export_dir, exist_ok=True)
+        nice = export_filename(
+            {
+                'artist': meta.get('artist'),
+                'title': meta.get('title'),
+            },
+            'wav',
+        )
+        final_wav = os.path.join(export_dir, f"{meta.get('id', 'track')}_{nice}")
+    else:
+        final_wav = plan_track_path(meta, bpm=bpm, key=key)
+        ensure_parent_dir(final_wav)
 
     if os.path.exists(final_wav):
         os.remove(final_wav)
-    from library import prepare_new_record, safe_rename
 
     if not safe_rename(staging_wav, final_wav):
         raise RuntimeError('WAV 파일 이동 실패 (OneDrive 잠금). 잠시 후 다시 시도하세요.')
@@ -235,6 +259,7 @@ def finalize_record(
         'genre': meta['genre'],
         'year': meta['year'],
         'url': meta['url'],
+        'thumbnail_url': meta.get('thumbnail_url') or '',
     }
     if analysis:
         record['analysis'] = analysis
@@ -256,13 +281,66 @@ def finalize_record(
         final_wav = str(record.get('path') or final_wav)
     except Exception as exc:
         print(f'[pipeline] metadata enrich: {exc}')
+
     write_wav_tags(final_wav, record, cover_data=cover_data, cover_mime=cover_mime or 'image/jpeg')
-    save_album_cover_sidecar(final_wav, cover_data, cover_mime)
+    if not ephemeral:
+        save_album_cover_sidecar(final_wav, cover_data, cover_mime)
+
+    export_path = final_wav
+    if export_format == 'mp3':
+        _emit(
+            progress_callback,
+            0.96,
+            f'MP3 320k 변환 중... · {label}' if label else 'MP3 320k 변환 중...',
+            stage='converting',
+            track_title=meta.get('title'),
+            track_artist=meta.get('artist'),
+        )
+        mp3_path = os.path.splitext(final_wav)[0] + '.mp3'
+        if os.path.exists(mp3_path):
+            os.remove(mp3_path)
+        try:
+            (
+                ffmpeg.input(final_wav)
+                .output(mp3_path, audio_bitrate='320k', format='mp3', **{'id3v2_version': '3'})
+                .overwrite_output()
+                .run(quiet=True, capture_stdout=True, capture_stderr=True)
+            )
+        except ffmpeg.Error as e:
+            err = (e.stderr or b'').decode('utf-8', errors='replace')
+            raise RuntimeError(f'MP3 변환 실패: {err[:300]}') from e
+        write_mp3_tags(mp3_path, record, cover_data=cover_data, cover_mime=cover_mime or 'image/jpeg')
+        # Keep WAV only if not ephemeral (local archive); else delete WAV keep MP3
+        if ephemeral:
+            try:
+                os.remove(final_wav)
+            except OSError:
+                pass
+            export_path = mp3_path
+            record['format'] = 'MP3'
+            record['path'] = mp3_path
+            record['local_path'] = mp3_path
+        else:
+            # Local: keep WAV as archive, also offer mp3 beside it
+            export_path = mp3_path
+            record['format'] = 'WAV'
+            record['export_path'] = mp3_path
+    else:
+        record['format'] = 'WAV'
+
+    record['export_path'] = export_path
+    record['export_name'] = export_filename(record, 'mp3' if export_format == 'mp3' else 'wav')
+
+    if ephemeral:
+        # Metadata archive only — binary served once then GC'd
+        record['ephemeral'] = True
+        record['downloaded_at'] = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
+
     cleanup_temp_dir()
     return record
 
 
-def process_url_sync(url, progress_callback=None):
+def process_url_sync(url, progress_callback=None, export_format: str = 'wav'):
     os.makedirs(TEMP_DIR, exist_ok=True)
 
     _emit(progress_callback, 0.05, 'URL 분석 중...', stage='listing')
@@ -321,7 +399,14 @@ def process_url_sync(url, progress_callback=None):
     cover_data, cover_mime = resolve_cover_bytes(meta, TEMP_DIR, video_id)
 
     record = finalize_record(
-        staging_wav, meta, '', UNKNOWN, cover_data, cover_mime, progress_callback
+        staging_wav,
+        meta,
+        '',
+        UNKNOWN,
+        cover_data,
+        cover_mime,
+        progress_callback,
+        export_format=export_format,
     )
     _emit(
         progress_callback,
@@ -336,5 +421,5 @@ def process_url_sync(url, progress_callback=None):
     return record
 
 
-async def process_url(url, progress_callback=None):
-    return await asyncio.to_thread(process_url_sync, url, progress_callback)
+async def process_url(url, progress_callback=None, export_format: str = 'wav'):
+    return await asyncio.to_thread(process_url_sync, url, progress_callback, export_format)

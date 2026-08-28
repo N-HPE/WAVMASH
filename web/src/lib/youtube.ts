@@ -1,6 +1,6 @@
 /* ──────────────────────────────────────────────
    WaveMash — YouTube Data API Client & Title Cleaner
-   유튜브 재생목록/좋아요 영상 조회 및 메타데이터 정제 유틸리티
+   meta_parse.py 와 동일 규칙으로 Official/MV/Topic 등 junk 제거
    ────────────────────────────────────────────── */
 
 export interface YouTubePlaylistItem {
@@ -24,47 +24,85 @@ export interface YouTubePlaylist {
   items?: YouTubePlaylistItem[];
 }
 
-/**
- * 지저분한 유튜브 제목에서 아티스트와 순수 곡명을 깔끔하게 분리/정제
- * 예: "Daft Punk - One More Time (Official Video 4K) [Audio]" -> artist: "Daft Punk", title: "One More Time"
- */
-export function cleanYouTubeTitle(rawTitle: string, channelName?: string): { artist: string; title: string } {
-  let cleaned = rawTitle
-    // 괄호 안의 불필요한 메타 텍스트 제거
-    .replace(/\s*[\(\[](?:Official\s*(?:Music\s*)?(?:Video|Audio|HD|4K|Visualizer|Lyric\s*Video|MV)|MV|M\/V|Audio|Lyric\s*Video|Lyrics|Visualizer|Live|Remastered|HQ|HD|Explicit|4K|1080p|Clip\s*Officiel)[\)\]]/gi, '')
-    // 따옴표 및 기타 특수문자 정리
-    .replace(/[【】「」]/g, '')
+const JUNK_PAREN =
+  /[\(\[【｛{]\s*(?:official(?:\s+(?:music|lyric|audio|video|mv|visualizer))?|official\s*(?:video|audio|mv|hd|4k|visualizer|lyric\s*video)?|music\s*video|lyric\s*video|lyrics?|audio|visualizer|mv|m\/?v|hd|hq|4k|1080p|720p|explicit|clean\s*version|remaster(?:ed)?(?:\s*\d{2,4})?|live(?:\s+(?:at|from|version))?|topic|full\s*album|color\s*coded|eng(?:lish)?(?:\s*\/\s*kor)?|sub(?:title)?s?|karaoke|instrumental\s*only|speed\s*up|slowed|reverb|nightcore|tiktok|shorts?|preview|snippet|clip\s*officiel|videoclip|performance\s*video|prod\.?\s*by|produced\s*by|with\s*lyrics|fan\s*made|audio\s*only|spotify|apple\s*music)[^)\]】｝}]*[\)\]】｝}]/gi;
+
+const JUNK_TRAILING =
+  /\s*[-–—|]\s*(?:official(?:\s+(?:music\s*)?(?:video|audio))?|lyrics?|audio|mv|visualizer|remaster(?:ed)?|live|hd|4k|with\s*lyrics)\s*$/i;
+
+const FEAT = /\s*[\(\[]?\s*(?:feat\.?|ft\.?|featuring)\s+([^)\]]+)[\)\]]?/i;
+
+function stripJunk(title: string): string {
+  let t = (title || '')
+    .replace(/【/g, '[')
+    .replace(/】/g, ']')
+    .replace(/[「」『』]/g, '')
     .trim();
-
-  // "Artist - Title" 또는 "Artist – Title" 패턴 분리
-  const hyphenMatches = cleaned.split(/\s*[-–—|:]\s*/);
-  if (hyphenMatches.length >= 2) {
-    const artist = hyphenMatches[0].trim();
-    const title = hyphenMatches.slice(1).join(' - ').trim();
-    return {
-      artist: artist || channelName || 'Unknown Artist',
-      title: title || cleaned,
-    };
+  let prev = '';
+  while (prev !== t) {
+    prev = t;
+    t = t.replace(JUNK_PAREN, '');
   }
+  t = t.replace(JUNK_TRAILING, '');
+  return t.replace(/\s{2,}/g, ' ').replace(/^[\s\-–—|·•/"']+|[\s\-–—|·•/"']+$/g, '');
+}
 
-  // "Artist / Title"
-  const slashMatches = cleaned.split(/\s*\/\s*/);
-  if (slashMatches.length >= 2) {
-    return {
-      artist: slashMatches[0].trim(),
-      title: slashMatches.slice(1).join(' ').trim(),
-    };
-  }
-
-  return {
-    artist: channelName?.replace(/ - Topic$/i, '') || 'YouTube Artist',
-    title: cleaned,
-  };
+function cleanChannel(channel?: string): string {
+  if (!channel) return 'Unknown Artist';
+  let name = channel.replace(/\s*-\s*topic$/i, '').replace(/vevo$/i, '').trim();
+  const stripped = name.replace(/\s*(?:official|music|vevo)\s*$/i, '').trim();
+  if (stripped.length >= 2) name = stripped;
+  return name || 'Unknown Artist';
 }
 
 /**
- * 내 유튜브 재생목록(Playlists) 목록 조회
+ * 지저분한 유튜브 제목 → artist / title
+ * 예: "Daft Punk - One More Time (Official Video 4K)" → Daft Punk / One More Time
  */
+export function cleanYouTubeTitle(
+  rawTitle: string,
+  channelName?: string
+): { artist: string; title: string } {
+  const fallback = cleanChannel(channelName);
+  const cleaned = stripJunk(rawTitle);
+  if (!cleaned) return { artist: fallback, title: 'Unknown' };
+
+  const jp = rawTitle.trim().match(/^(.+?)\s*[「『](.+?)[」』]\s*$/);
+  if (jp) {
+    return {
+      artist: stripJunk(jp[1]) || fallback,
+      title: stripJunk(jp[2]) || cleaned,
+    };
+  }
+
+  const seps = [' - ', ' – ', ' — ', ' | ', ' · ', ' • ', ' / '];
+  for (const sep of seps) {
+    if (!cleaned.includes(sep)) continue;
+    const idx = cleaned.indexOf(sep);
+    const left = cleaned.slice(0, idx).trim();
+    const right = stripJunk(cleaned.slice(idx + sep.length));
+    if (left && right && left.split(/\s+/).length <= 8) {
+      let artist = left;
+      let title = right;
+      const feat = title.match(FEAT);
+      if (feat) {
+        title = title.replace(FEAT, '').trim();
+        if (feat[1] && !artist.toLowerCase().includes(feat[1].toLowerCase())) {
+          artist = `${artist}, ${feat[1].trim()}`;
+        }
+      }
+      return { artist, title: title || cleaned };
+    }
+  }
+
+  const by = cleaned.match(/^(.+?)\s+by\s+(.+)$/i);
+  if (by) {
+    return { artist: by[2].trim(), title: stripJunk(by[1]) };
+  }
+
+  return { artist: fallback, title: cleaned };
+}
+
 export async function fetchMyYouTubePlaylists(accessToken: string): Promise<YouTubePlaylist[]> {
   try {
     const res = await fetch(
@@ -103,9 +141,6 @@ export async function fetchMyYouTubePlaylists(accessToken: string): Promise<YouT
   }
 }
 
-/**
- * 특정 재생목록 내의 트랙(Videos) 목록 조회
- */
 export async function fetchPlaylistItems(
   accessToken: string,
   playlistId: string
@@ -123,9 +158,7 @@ export async function fetchPlaylistItems(
       }
     );
 
-    if (!res.ok) {
-      return [];
-    }
+    if (!res.ok) return [];
 
     const data = await res.json();
     if (!data.items) return [];
@@ -134,7 +167,8 @@ export async function fetchPlaylistItems(
       .filter((item: any) => item.snippet?.resourceId?.videoId)
       .map((item: any) => {
         const rawTitle = item.snippet?.title || 'Unknown Track';
-        const channel = item.snippet?.videoOwnerChannelTitle || item.snippet?.channelTitle || '';
+        const channel =
+          item.snippet?.videoOwnerChannelTitle || item.snippet?.channelTitle || '';
         const { artist, title: cleanTitle } = cleanYouTubeTitle(rawTitle, channel);
         const videoId = item.snippet.resourceId.videoId;
 
@@ -159,9 +193,6 @@ export async function fetchPlaylistItems(
   }
 }
 
-/**
- * 좋아요 표시한 동영상(Liked Videos) 중 음악 트랙 목록 조회
- */
 export async function fetchLikedVideos(accessToken: string): Promise<YouTubePlaylistItem[]> {
   try {
     const res = await fetch(
@@ -174,9 +205,7 @@ export async function fetchLikedVideos(accessToken: string): Promise<YouTubePlay
       }
     );
 
-    if (!res.ok) {
-      return [];
-    }
+    if (!res.ok) return [];
 
     const data = await res.json();
     if (!data.items) return [];

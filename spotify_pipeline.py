@@ -345,7 +345,7 @@ def _match_mp3_to_song(mp3_path: str, songs_by_id: dict[str, object]) -> object 
     return None
 
 
-def process_spotify_url_sync(url, progress_callback=None):
+def process_spotify_url_sync(url, progress_callback=None, export_format: str = 'wav'):
     url = normalize_spotify_url(url.strip())
     if not is_spotify_url(url):
         raise ValueError('유효한 Spotify URL이 아닙니다. (트랙 / 앨범 / 플레이리스트)')
@@ -569,6 +569,7 @@ def process_spotify_url_sync(url, progress_callback=None):
             track_cb if progress_callback else None,
             progress_cover=base + span * 0.55,
             progress_meta=base + span * 0.75,
+            export_format=export_format,
         )
         records.append(record)
 

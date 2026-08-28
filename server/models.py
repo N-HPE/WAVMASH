@@ -123,6 +123,8 @@ class DownloadRequest(BaseModel):
     """다운로드 요청."""
 
     url: str = Field(..., min_length=5, description="YouTube 또는 Spotify URL")
+    # Master = wav (무손실), Mobile = mp3 320k
+    format: str = Field(default="wav", description="wav | mp3")
 
 
 class DownloadProgress(BaseModel):
