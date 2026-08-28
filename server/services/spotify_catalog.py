@@ -2,8 +2,14 @@
 
 from __future__ import annotations
 
+import json
+import logging
+import os
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timedelta, timezone
 from functools import lru_cache
+from pathlib import Path
 from typing import Any
 
 import requests as http_requests
@@ -11,13 +17,21 @@ from fastapi import HTTPException
 
 from spotify_metadata import _user_spotify_credentials
 
+logger = logging.getLogger("wavemash.catalog")
+
 # Spotify Charts 공개 엔드포인트 (음반 차트 등 보조)
 _SPOTIFY_PUBLIC_CHARTS_URL = (
     "https://charts-spotify-com-service.spotify.com/public/v0/charts"
 )
-# 장르 신곡 차트는 하루 1회(날짜 키)만 갱신
+# 장르 차트 캐시 (메모리 + 디스크). Render 콜드스타트 대비.
 _chart_cache: dict[str, tuple[str, dict[str, Any]]] = {}
-
+_chart_cache_lock = threading.Lock()
+_DISK_CACHE_PATH = Path(
+    os.environ.get(
+        "WAVMASH_CHART_CACHE",
+        str(Path(__file__).resolve().parents[2] / ".cache" / "genre_charts.json"),
+    )
+)
 _CHART_KINDS: dict[str, dict[str, str]] = {
     "songs": {
         "alias": "REGIONAL_GLOBAL_WEEKLY",
@@ -37,55 +51,42 @@ _GENRE_CHART_DEFS: list[dict[str, Any]] = [
     {
         "id": "pop",
         "label": "팝",
-        "queries": ["genre:pop year:{y0}-{y1}", "pop year:{y1}"],
+        "queries": ["genre:pop year:{y1}", "pop year:{y1}"],
     },
     {
         "id": "hiphop",
         "label": "힙합",
-        "queries": [
-            "hip hop year:{y1}",
-            "rap year:{y1}",
-            "hip hop year:{y0}",
-            "rap year:{y0}",
-        ],
+        "queries": ["hip hop year:{y1}", "rap year:{y1}"],
     },
     {
         "id": "rnb",
         "label": "R&B",
-        "queries": [
-            "r&b year:{y1}",
-            "r&b year:{y0}",
-            "genre:soul year:{y0}-{y1}",
-        ],
+        "queries": ["r&b year:{y1}", "genre:soul year:{y1}"],
     },
     {
         "id": "dance",
         "label": "댄스",
-        "queries": [
-            "genre:dance year:{y0}-{y1}",
-            "genre:electronic year:{y0}-{y1}",
-            "dance pop year:{y1}",
-        ],
+        "queries": ["genre:dance year:{y1}", "dance pop year:{y1}"],
     },
     {
         "id": "rock",
         "label": "록",
-        "queries": ["genre:rock year:{y0}-{y1}", "rock year:{y1}"],
+        "queries": ["genre:rock year:{y1}", "rock year:{y1}"],
     },
     {
         "id": "indie",
         "label": "인디",
-        "queries": ["genre:indie year:{y0}-{y1}", "indie year:{y1}"],
+        "queries": ["genre:indie year:{y1}", "indie year:{y1}"],
     },
     {
         "id": "latin",
         "label": "라틴",
-        "queries": ["genre:latin year:{y0}-{y1}", "latin year:{y1}"],
+        "queries": ["genre:latin year:{y1}", "latin year:{y1}"],
     },
     {
         "id": "kpop",
         "label": "K-pop",
-        "queries": ["k-pop year:{y1}", "k-pop year:{y0}", "kpop year:{y1}"],
+        "queries": ["k-pop year:{y1}", "kpop year:{y1}"],
     },
 ]
 
@@ -520,6 +521,59 @@ def _parse_release_date(value: str | None) -> date | None:
     return None
 
 
+def _cache_get(key: str) -> dict[str, Any] | None:
+    today_key = date.today().isoformat()
+    with _chart_cache_lock:
+        cached = _chart_cache.get(key)
+        if cached and cached[0] == today_key:
+            return cached[1]
+    # 디스크 폴백 (Render 프로세스 재시작 후에도 당일 캐시 유지)
+    try:
+        if _DISK_CACHE_PATH.is_file():
+            raw = json.loads(_DISK_CACHE_PATH.read_text(encoding="utf-8"))
+            entry = raw.get(key) if isinstance(raw, dict) else None
+            if (
+                isinstance(entry, dict)
+                and entry.get("day") == today_key
+                and isinstance(entry.get("payload"), dict)
+            ):
+                payload = entry["payload"]
+                with _chart_cache_lock:
+                    _chart_cache[key] = (today_key, payload)
+                return payload
+    except Exception:
+        logger.debug("chart disk cache read failed", exc_info=True)
+    return None
+
+
+def _cache_set(key: str, payload: dict[str, Any]) -> None:
+    today_key = date.today().isoformat()
+    with _chart_cache_lock:
+        _chart_cache[key] = (today_key, payload)
+        try:
+            _DISK_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+            raw: dict[str, Any] = {}
+            if _DISK_CACHE_PATH.is_file():
+                try:
+                    loaded = json.loads(_DISK_CACHE_PATH.read_text(encoding="utf-8"))
+                    if isinstance(loaded, dict):
+                        raw = loaded
+                except Exception:
+                    raw = {}
+            # 오래된 날짜 항목 정리
+            raw = {
+                k: v
+                for k, v in raw.items()
+                if isinstance(v, dict) and v.get("day") == today_key
+            }
+            raw[key] = {"day": today_key, "payload": payload}
+            tmp = _DISK_CACHE_PATH.with_suffix(".tmp")
+            tmp.write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
+            tmp.replace(_DISK_CACHE_PATH)
+        except Exception:
+            logger.debug("chart disk cache write failed", exc_info=True)
+
+
 def _search_new_tracks_for_genre(
     sp: Any,
     queries: list[str],
@@ -527,7 +581,10 @@ def _search_new_tracks_for_genre(
     limit: int = 10,
     lookback_days: int = 180,
 ) -> list[dict[str, Any]]:
-    """장르 쿼리로 최근 발매곡을 모아 최신·인기 점수로 상위 N곡 반환."""
+    """장르 쿼리로 최근 발매곡을 모아 최신·인기 점수로 상위 N곡 반환.
+
+    속도 우선: 쿼리 최대 2개 × offset 0(limit=20) + tracks 보강 1회.
+    """
     today = date.today()
     y1 = today.year
     y0 = y1 - 1
@@ -535,6 +592,7 @@ def _search_new_tracks_for_genre(
     seen: set[str] = set()
     collected: list[dict[str, Any]] = []
     noise_titles = {"pop", "rap", "rock", "latin", "k-pop", "kpop", "r&b", "indie"}
+    target = max(limit * 2, 16)
 
     def _score(released: date, popularity: int) -> float:
         age = max(0, (today - released).days)
@@ -567,36 +625,29 @@ def _search_new_tracks_for_genre(
             payload["_released"] = released
             collected.append(payload)
 
-    for template in queries:
+    for template in queries[:2]:
         q = template.format(y0=y0, y1=y1)
-        for offset in (0, 10, 20):
-            try:
-                data = sp.search(
-                    q=q, type="track", limit=10, offset=offset, market="US"
-                )
-            except Exception:
-                break
-            _consume(list((data.get("tracks") or {}).get("items") or []))
-            if len(collected) >= limit * 6:
-                break
-        if len(collected) >= limit * 6:
-            break
-
-    # Search 응답에 popularity가 비는 경우가 있어 tracks API로 보강
-    ids = [t["id"] for t in collected if t.get("id")]
-    pop_by_id: dict[str, int] = {}
-    for i in range(0, len(ids), 50):
-        chunk = ids[i : i + 50]
         try:
-            detail = sp.tracks(chunk, market="US") or {}
+            data = sp.search(q=q, type="track", limit=20, offset=0, market="US")
         except Exception:
             continue
-        for item in detail.get("tracks") or []:
-            if not item:
-                continue
-            tid = item.get("id") or ""
-            if tid:
-                pop_by_id[tid] = int(item.get("popularity") or 0)
+        _consume(list((data.get("tracks") or {}).get("items") or []))
+        if len(collected) >= target:
+            break
+
+    ids = [t["id"] for t in collected if t.get("id")]
+    pop_by_id: dict[str, int] = {}
+    if ids:
+        try:
+            detail = sp.tracks(ids[:50], market="US") or {}
+            for item in detail.get("tracks") or []:
+                if not item:
+                    continue
+                tid = item.get("id") or ""
+                if tid:
+                    pop_by_id[tid] = int(item.get("popularity") or 0)
+        except Exception:
+            pass
 
     ranked: list[tuple[float, date, dict[str, Any]]] = []
     for track in collected:
@@ -618,28 +669,89 @@ def _search_new_tracks_for_genre(
     return out
 
 
-def get_genre_new_charts(per_genre: int = 10) -> dict[str, Any]:
-    """장르별 최근 인기 Top N (하루 1회 캐시)."""
-    capped = max(1, min(int(per_genre or 10), 20))
-    today_key = date.today().isoformat()
-    cache_key = f"genres-v3:{capped}"
-    cached = _chart_cache.get(cache_key)
-    if cached and cached[0] == today_key:
-        return cached[1]
-
-    sp = _spotify_client()
-    genres_out: list[dict[str, Any]] = []
-    for gdef in _GENRE_CHART_DEFS:
-        tracks = _search_new_tracks_for_genre(
-            sp, list(gdef["queries"]), limit=capped, lookback_days=180
-        )
-        genres_out.append(
+def _genre_payload(
+    gdef: dict[str, Any],
+    tracks: list[dict[str, Any]],
+    *,
+    today_key: str,
+) -> dict[str, Any]:
+    return {
+        "region": gdef["id"],
+        "region_label": gdef["label"],
+        "playlist_name": f"{gdef['label']} Popular Recent",
+        "playlist_id": f"genre-{gdef['id']}",
+        "chart_date": today_key,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "tracks": tracks,
+        "genres": [
             {
                 "id": gdef["id"],
                 "label": gdef["label"],
                 "tracks": tracks,
             }
-        )
+        ],
+    }
+
+
+def get_single_genre_chart(genre_id: str, limit: int = 10) -> dict[str, Any]:
+    """단일 장르 차트 (빠름). 장르당 독립 캐시."""
+    gdef = next((g for g in _GENRE_CHART_DEFS if g["id"] == genre_id), None)
+    if not gdef:
+        raise HTTPException(status_code=400, detail="지원하지 않는 장르입니다.")
+
+    capped = max(1, min(int(limit or 10), 20))
+    today_key = date.today().isoformat()
+    cache_key = f"genre-v4:{gdef['id']}:{capped}"
+    cached = _cache_get(cache_key)
+    if cached:
+        return cached
+
+    sp = _spotify_client()
+    tracks = _search_new_tracks_for_genre(
+        sp, list(gdef["queries"]), limit=capped, lookback_days=180
+    )
+    result = _genre_payload(gdef, tracks, today_key=today_key)
+    _cache_set(cache_key, result)
+    return result
+
+
+def get_genre_new_charts(per_genre: int = 10) -> dict[str, Any]:
+    """전체 장르 차트. 장르별 병렬 조회 + 캐시 재사용."""
+    capped = max(1, min(int(per_genre or 10), 20))
+    today_key = date.today().isoformat()
+    cache_key = f"genres-v4:{capped}"
+    cached = _cache_get(cache_key)
+    if cached:
+        return cached
+
+    genres_out: list[dict[str, Any]] = []
+
+    def _one(gdef: dict[str, Any]) -> dict[str, Any]:
+        single = get_single_genre_chart(gdef["id"], capped)
+        return (single.get("genres") or [{}])[0]
+
+    # 장르 병렬 처리 (Spotify rate limit 여유 있게 4 workers)
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        futures = {pool.submit(_one, g): g for g in _GENRE_CHART_DEFS}
+        by_id: dict[str, dict[str, Any]] = {}
+        for fut in as_completed(futures):
+            gdef = futures[fut]
+            try:
+                by_id[gdef["id"]] = fut.result()
+            except Exception as exc:
+                logger.warning("genre chart failed %s: %s", gdef["id"], exc)
+                by_id[gdef["id"]] = {
+                    "id": gdef["id"],
+                    "label": gdef["label"],
+                    "tracks": [],
+                }
+
+    for gdef in _GENRE_CHART_DEFS:
+        genres_out.append(by_id.get(gdef["id"]) or {
+            "id": gdef["id"],
+            "label": gdef["label"],
+            "tracks": [],
+        })
 
     result: dict[str, Any] = {
         "region": "genres",
@@ -651,12 +763,12 @@ def get_genre_new_charts(per_genre: int = 10) -> dict[str, Any]:
         "tracks": [],
         "genres": genres_out,
     }
-    _chart_cache[cache_key] = (today_key, result)
+    _cache_set(cache_key, result)
     return result
 
 
 def get_spotify_charts(region: str = "genres", limit: int = 10) -> dict[str, Any]:
-    """홈 차트. genres=장르별 신곡, songs|albums=주간 글로벌 차트."""
+    """홈 차트. genres=전체, pop|hiphop|...=단일 장르, songs|albums=주간 글로벌."""
     raw = (region or "genres").strip().lower()
     capped = min(max(int(limit or 10), 1), 50)
 
@@ -668,20 +780,8 @@ def get_spotify_charts(region: str = "genres", limit: int = 10) -> dict[str, Any
     if raw in {"genres", "genre", ""}:
         return get_genre_new_charts(per_genre=min(capped, 20))
 
-    for gdef in _GENRE_CHART_DEFS:
-        if gdef["id"] == raw:
-            full = get_genre_new_charts(per_genre=min(capped, 20))
-            matched = next(
-                (g for g in full["genres"] if g["id"] == raw),
-                {"id": raw, "label": gdef["label"], "tracks": []},
-            )
-            return {
-                **full,
-                "region": raw,
-                "region_label": gdef["label"],
-                "tracks": matched.get("tracks") or [],
-                "genres": [matched],
-            }
+    if any(g["id"] == raw for g in _GENRE_CHART_DEFS):
+        return get_single_genre_chart(raw, limit=min(capped, 20))
 
     return get_genre_new_charts(per_genre=min(capped, 20))
 
@@ -695,9 +795,9 @@ def _get_public_weekly_chart(key: str, limit: int = 50) -> dict[str, Any]:
     capped = max(1, min(int(limit or 50), 50))
     today_key = date.today().isoformat()
     cache_key = f"public:{key}:{capped}"
-    cached = _chart_cache.get(cache_key)
-    if cached and cached[0] == today_key:
-        return cached[1]
+    cached = _cache_get(cache_key)
+    if cached:
+        return cached
 
     try:
         resp = http_requests.get(
@@ -817,5 +917,5 @@ def _get_public_weekly_chart(key: str, limit: int = 50) -> dict[str, Any]:
         "tracks": tracks,
         "genres": [],
     }
-    _chart_cache[cache_key] = (today_key, result)
+    _cache_set(cache_key, result)
     return result

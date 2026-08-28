@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import APIRouter, Query
 
 from server.services.spotify_catalog import (
@@ -23,11 +25,11 @@ async def catalog_search(q: str = Query("", min_length=1, max_length=120)):
 
 @router.get("/charts")
 async def catalog_charts(
-    region: str = Query("genres", max_length=16),
+    region: str = Query("pop", max_length=16),
     limit: int = Query(10, ge=1, le=50),
 ):
-    """장르별 최근 인기 Top N (기본). region=songs|albums 이면 Spotify 주간 글로벌 차트."""
-    return get_spotify_charts(region=region, limit=limit)
+    """장르 차트. region=pop|hiphop|... 단일 장르(빠름), genres=전체, songs|albums=주간."""
+    return await asyncio.to_thread(get_spotify_charts, region, limit)
 
 
 @router.get("/charts/regions")

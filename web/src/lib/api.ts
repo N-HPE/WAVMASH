@@ -403,7 +403,7 @@ class WaveMashAPI {
   }
 
   async getSpotifyChart(
-    region: string = 'genres',
+    region: string = 'pop',
     limit: number = 10
   ): Promise<import('./types').CatalogChart> {
     return this.fetch<import('./types').CatalogChart>(

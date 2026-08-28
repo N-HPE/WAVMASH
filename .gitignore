@@ -54,3 +54,6 @@ Desktop.ini
 web/node_modules/
 web/.next/
 web/out/
+
+# Runtime chart cache
+.cache/
