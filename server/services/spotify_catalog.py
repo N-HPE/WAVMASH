@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import time
 from datetime import date, datetime, timedelta, timezone
 from functools import lru_cache
 from typing import Any
@@ -623,14 +622,21 @@ def get_genre_new_charts(per_genre: int = 10) -> dict[str, Any]:
 
 
 def get_spotify_charts(region: str = "genres", limit: int = 10) -> dict[str, Any]:
-    """홈 차트. genres=장르별 신곡, albums=주간 음반."""
+    """홈 차트. genres=장르별 신곡, songs|albums=주간 글로벌 차트."""
     raw = (region or "genres").strip().lower()
+    capped = min(max(int(limit or 10), 1), 50)
+
+    if raw in {"songs", "song"}:
+        return _get_public_weekly_chart("songs", limit=capped)
     if raw in {"albums", "album"}:
-        return _get_public_weekly_chart("albums", limit=min(max(limit, 1), 50))
+        return _get_public_weekly_chart("albums", limit=capped)
+
+    if raw in {"genres", "genre", ""}:
+        return get_genre_new_charts(per_genre=min(capped, 20))
 
     for gdef in _GENRE_CHART_DEFS:
         if gdef["id"] == raw:
-            full = get_genre_new_charts(per_genre=limit if limit <= 20 else 10)
+            full = get_genre_new_charts(per_genre=min(capped, 20))
             matched = next(
                 (g for g in full["genres"] if g["id"] == raw),
                 {"id": raw, "label": gdef["label"], "tracks": []},
@@ -643,7 +649,7 @@ def get_spotify_charts(region: str = "genres", limit: int = 10) -> dict[str, Any
                 "genres": [matched],
             }
 
-    return get_genre_new_charts(per_genre=limit if limit <= 20 else 10)
+    return get_genre_new_charts(per_genre=min(capped, 20))
 
 
 def _get_public_weekly_chart(key: str, limit: int = 50) -> dict[str, Any]:

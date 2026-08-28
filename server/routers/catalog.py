@@ -24,9 +24,9 @@ async def catalog_search(q: str = Query("", min_length=1, max_length=120)):
 @router.get("/charts")
 async def catalog_charts(
     region: str = Query("genres", max_length=16),
-    limit: int = Query(10, ge=1, le=20),
+    limit: int = Query(10, ge=1, le=50),
 ):
-    """장르별 신곡 Top N (기본). region=albums 이면 주간 음반 차트."""
+    """장르별 신곡 Top N (기본). region=songs|albums 이면 Spotify 주간 글로벌 차트."""
     return get_spotify_charts(region=region, limit=limit)
 
 
