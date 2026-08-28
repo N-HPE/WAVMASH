@@ -533,13 +533,12 @@ def _search_new_tracks_for_genre(
     y0 = y1 - 1
     cutoff = today - timedelta(days=lookback_days)
     seen: set[str] = set()
-    collected: list[tuple[float, date, dict[str, Any]]] = []
+    collected: list[dict[str, Any]] = []
     noise_titles = {"pop", "rap", "rock", "latin", "k-pop", "kpop", "r&b", "indie"}
 
     def _score(released: date, popularity: int) -> float:
         age = max(0, (today - released).days)
         fresh = max(0.0, 1.0 - (age / float(lookback_days)))
-        # 최근일수록 가점, 인기(0–100)로 순위 결정
         return float(popularity) * (0.30 + 0.70 * fresh) + fresh * 8.0
 
     def _consume(items: list[dict[str, Any]]) -> None:
@@ -548,6 +547,8 @@ def _search_new_tracks_for_genre(
             if not tid or tid in seen:
                 continue
             album = item.get("album") or {}
+            if (album.get("album_type") or "").lower() == "compilation":
+                continue
             released = _parse_release_date(album.get("release_date"))
             if released is None or released < cutoff:
                 continue
@@ -563,8 +564,8 @@ def _search_new_tracks_for_genre(
             seen.add(dedupe_key)
             payload = _track_payload(item)
             payload["release_date"] = album.get("release_date") or ""
-            pop = int(payload.get("popularity") or 0)
-            collected.append((_score(released, pop), released, payload))
+            payload["_released"] = released
+            collected.append(payload)
 
     for template in queries:
         q = template.format(y0=y0, y1=y1)
@@ -576,15 +577,40 @@ def _search_new_tracks_for_genre(
             except Exception:
                 break
             _consume(list((data.get("tracks") or {}).get("items") or []))
-            if len(collected) >= limit * 5:
+            if len(collected) >= limit * 6:
                 break
-        if len(collected) >= limit * 5:
+        if len(collected) >= limit * 6:
             break
 
-    # 최신·인기 점수 내림차순 (동점이면 더 최근 발매)
-    collected.sort(key=lambda row: (row[0], row[1]), reverse=True)
+    # Search 응답에 popularity가 비는 경우가 있어 tracks API로 보강
+    ids = [t["id"] for t in collected if t.get("id")]
+    pop_by_id: dict[str, int] = {}
+    for i in range(0, len(ids), 50):
+        chunk = ids[i : i + 50]
+        try:
+            detail = sp.tracks(chunk, market="US") or {}
+        except Exception:
+            continue
+        for item in detail.get("tracks") or []:
+            if not item:
+                continue
+            tid = item.get("id") or ""
+            if tid:
+                pop_by_id[tid] = int(item.get("popularity") or 0)
+
+    ranked: list[tuple[float, date, dict[str, Any]]] = []
+    for track in collected:
+        tid = track.get("id") or ""
+        if tid in pop_by_id:
+            track["popularity"] = pop_by_id[tid]
+        released = track.pop("_released", None)
+        if not isinstance(released, date):
+            released = _parse_release_date(track.get("release_date")) or today
+        ranked.append((_score(released, int(track.get("popularity") or 0)), released, track))
+
+    ranked.sort(key=lambda row: (row[0], row[1]), reverse=True)
     out: list[dict[str, Any]] = []
-    for i, (_, __, track) in enumerate(collected[:limit], start=1):
+    for i, (_, __, track) in enumerate(ranked[:limit], start=1):
         track = dict(track)
         track["rank"] = i
         track["item_type"] = "track"
@@ -596,7 +622,7 @@ def get_genre_new_charts(per_genre: int = 10) -> dict[str, Any]:
     """장르별 최근 인기 Top N (하루 1회 캐시)."""
     capped = max(1, min(int(per_genre or 10), 20))
     today_key = date.today().isoformat()
-    cache_key = f"genres-v2:{capped}"
+    cache_key = f"genres-v3:{capped}"
     cached = _chart_cache.get(cache_key)
     if cached and cached[0] == today_key:
         return cached[1]
