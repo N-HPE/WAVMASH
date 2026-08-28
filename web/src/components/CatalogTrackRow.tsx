@@ -58,8 +58,9 @@ export default function CatalogTrackRow({
     }
 
     let next = { ...playerTrack };
+    let resolvedYt: string | null = youtubeId;
 
-    if (!youtubeId) {
+    if (!resolvedYt) {
       setPreviewLoading(true);
       try {
         const res = await api.resolveCatalogPreview(
@@ -68,6 +69,7 @@ export default function CatalogTrackRow({
           track.id
         );
         if (res.youtube_id) {
+          resolvedYt = res.youtube_id;
           setYoutubeId(res.youtube_id);
           next = {
             ...next,
@@ -77,18 +79,34 @@ export default function CatalogTrackRow({
             platform: 'youtube',
           };
           setPreviewMissing(false);
+        } else if (track.preview_url) {
+          // YouTube 매칭 실패 시 Spotify/카탈로그 미리듣기 폴백
+          next = { ...next, preview_url: track.preview_url };
+          setPreviewMissing(false);
         } else {
           setPreviewMissing(true);
           setPreviewLoading(false);
           return;
         }
       } catch {
-        setPreviewMissing(true);
-        setPreviewLoading(false);
-        return;
+        if (track.preview_url) {
+          next = { ...next, preview_url: track.preview_url };
+        } else {
+          setPreviewMissing(true);
+          setPreviewLoading(false);
+          return;
+        }
       } finally {
         setPreviewLoading(false);
       }
+    } else {
+      next = {
+        ...next,
+        url: `https://www.youtube.com/watch?v=${resolvedYt}`,
+        external_id: resolvedYt,
+        preview_url: undefined,
+        platform: 'youtube',
+      };
     }
 
     const q = (queue || [track]).map((t) => {

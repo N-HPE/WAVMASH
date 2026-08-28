@@ -4,7 +4,7 @@ import { usePathname } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
 import RightPanel from '@/components/RightPanel';
 
-const STANDALONE_ROUTES = ['/login'];
+const STANDALONE_ROUTES = ['/login', '/privacy'];
 const WIDE_ROUTES = ['/search', '/artist', '/album'];
 
 export default function AppShell({ children }: { children: React.ReactNode }) {

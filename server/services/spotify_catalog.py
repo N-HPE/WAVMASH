@@ -135,27 +135,36 @@ def _youtube_search(artist: str, title: str) -> dict[str, str]:
     }
 
 
+_PREVIEW_OK: dict[tuple[str, str], dict[str, str]] = {}
+
+
 def resolve_preview(artist: str, title: str, spotify_id: str = "") -> dict[str, str]:
-    """카탈로그 미리듣기: YouTube 영상을 찾아 인페이지 재생용 ID를 반환."""
+    """카탈로그 미리듣기: YouTube 영상을 찾아 인페이지 재생용 ID를 반환.
+
+    성공 결과만 캐시한다. 빈 결과(검색 실패)를 캐시하면 일시 오류가 고착된다.
+    """
     _ = spotify_id
-    return _resolve_preview_cached(
-        (artist or "").strip(),
-        (title or "").strip(),
-    )
-
-
-@lru_cache(maxsize=256)
-def _resolve_preview_cached(artist: str, title: str) -> dict[str, str]:
+    a = (artist or "").strip()
+    t = (title or "").strip()
     empty = {"youtube_id": "", "youtube_url": "", "preview_url": ""}
-    if not title:
+    if not t:
         return empty
-    yt = _youtube_search(artist, title)
+
+    cached = _PREVIEW_OK.get((a, t))
+    if cached is not None:
+        return cached
+
+    yt = _youtube_search(a, t)
     if yt.get("youtube_id"):
-        return {
+        result = {
             "youtube_id": yt["youtube_id"],
             "youtube_url": yt["youtube_url"],
             "preview_url": "",
         }
+        if len(_PREVIEW_OK) >= 256:
+            _PREVIEW_OK.clear()
+        _PREVIEW_OK[(a, t)] = result
+        return result
     return empty
 
 

@@ -1,27 +1,16 @@
 'use client';
 
 /* ──────────────────────────────────────────────
-   WaveMash — Login / Google & YouTube Connect Page
-   구글 계정 1초 로그인 & YouTube 플레이리스트 자동 연동
+   WaveMash — Login Page (Google OAuth)
    ────────────────────────────────────────────── */
 
 import React, { useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
-import { Sparkles, Disc3, ShieldCheck, ArrowRight, Music, Flame } from 'lucide-react';
+import { Sparkles, Disc3, ShieldCheck, Users, Flame } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 
-function YouTubeIcon({ className = 'w-5 h-5' }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="currentColor">
-      <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z" />
-    </svg>
-  );
-}
-
 export default function LoginPage() {
-  const router = useRouter();
-  const { user, signInWithGoogle } = useAuth();
+  const { signInWithGoogle } = useAuth();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -30,8 +19,9 @@ export default function LoginPage() {
     setError(null);
     try {
       await signInWithGoogle();
-    } catch (err: any) {
-      setError(err.message || 'Google 로그인에 실패했습니다.');
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Google 로그인에 실패했습니다.';
+      setError(message);
       setLoading(false);
     }
   };
@@ -43,11 +33,9 @@ export default function LoginPage() {
         animate={{ opacity: 1, scale: 1, y: 0 }}
         className="w-full max-w-lg p-8 sm:p-10 rounded-3xl bg-[#0e0e1a]/95 border border-white/10 shadow-2xl backdrop-blur-2xl text-center space-y-8 relative overflow-hidden"
       >
-        {/* Background Ambient Glow */}
         <div className="absolute -top-24 -left-24 w-60 h-60 rounded-full bg-[#d4a853] opacity-20 blur-3xl pointer-events-none" />
-        <div className="absolute -bottom-24 -right-24 w-60 h-60 rounded-full bg-red-600 opacity-15 blur-3xl pointer-events-none" />
+        <div className="absolute -bottom-24 -right-24 w-60 h-60 rounded-full bg-blue-600 opacity-15 blur-3xl pointer-events-none" />
 
-        {/* ── 1. Branding Header ── */}
         <div className="space-y-3 relative z-10">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#d4a853]/15 border border-[#d4a853]/30 text-[#d4a853] text-xs font-semibold uppercase tracking-wider">
             <Sparkles className="w-3.5 h-3.5" />
@@ -59,30 +47,28 @@ export default function LoginPage() {
           </h1>
 
           <p className="text-xs sm:text-sm text-muted-foreground max-w-sm mx-auto leading-relaxed">
-            구글 계정으로 1초 만에 시작하고, 내 <strong className="text-white">YouTube 재생목록</strong>을
-            가져와 세련된 바이닐 컬렉션으로 소장하세요.
+            Google 계정으로 간편하게 로그인하고, 프로필·피드·컬렉션을
+            저장하세요.
           </p>
         </div>
 
-        {/* ── 2. Feature Highlights Pill Bar ── */}
         <div className="grid grid-cols-3 gap-2 py-2 relative z-10">
           <div className="glass p-3 rounded-xl border border-white/5 flex flex-col items-center gap-1 text-center">
-            <YouTubeIcon className="w-5 h-5 text-red-500" />
-            <span className="text-[11px] font-bold text-white">YouTube 연동</span>
-            <span className="text-[9px] text-muted-foreground">좋아요/플리 자동 분석</span>
+            <Users className="w-5 h-5 text-blue-400" />
+            <span className="text-[11px] font-bold text-white">프로필</span>
+            <span className="text-[9px] text-muted-foreground">컬렉션 공유</span>
           </div>
-
 
           <div className="glass p-3 rounded-xl border border-white/5 flex flex-col items-center gap-1 text-center">
             <Disc3 className="w-5 h-5 text-[#d4a853]" />
-            <span className="text-[11px] font-bold text-white">24bit WAV 소장</span>
+            <span className="text-[11px] font-bold text-white">24bit WAV</span>
             <span className="text-[9px] text-muted-foreground">무손실 아카이빙</span>
           </div>
 
           <div className="glass p-3 rounded-xl border border-white/5 flex flex-col items-center gap-1 text-center">
             <Flame className="w-5 h-5 text-amber-500" />
-            <span className="text-[11px] font-bold text-white">인스타 쇼룸</span>
-            <span className="text-[9px] text-muted-foreground">3x3 바이닐 피드</span>
+            <span className="text-[11px] font-bold text-white">피드</span>
+            <span className="text-[9px] text-muted-foreground">바이닐 쇼룸</span>
           </div>
         </div>
 
@@ -92,7 +78,6 @@ export default function LoginPage() {
           </div>
         )}
 
-        {/* ── 3. Google One-Click Login Button ── */}
         <div className="space-y-3 relative z-10">
           <button
             onClick={handleGoogleLogin}
@@ -117,14 +102,13 @@ export default function LoginPage() {
                 d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
               />
             </svg>
-            <span>{loading ? '연결 중...' : 'Google 계정으로 시작 & YouTube 플리 연동'}</span>
+            <span>{loading ? '로그인 중...' : 'Google 계정으로 로그인'}</span>
           </button>
         </div>
 
-        {/* ── 4. Privacy Footer Note ── */}
         <div className="flex items-center justify-center gap-2 text-[11px] text-muted-foreground/70 relative z-10 pt-2 border-t border-white/5">
           <ShieldCheck className="w-4 h-4 text-green-400" />
-          <span>YouTube 데이터는 읽기 전용으로 안전하게 동기화됩니다.</span>
+          <span>이메일과 프로필 정보만 사용합니다.</span>
         </div>
       </motion.div>
     </div>

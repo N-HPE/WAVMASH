@@ -15,6 +15,10 @@ export default function MobileBottomNav() {
   const pathname = usePathname();
   const { user, profile } = useAuth();
 
+  if (pathname.startsWith('/login') || pathname.startsWith('/privacy')) {
+    return null;
+  }
+
   const profileHref = user ? `/profile/${profile?.username || user.id}` : '/login';
 
   const NAV_BUTTONS = [

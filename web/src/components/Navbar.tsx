@@ -40,6 +40,7 @@ export default function Navbar() {
   const { user, profile, signOut } = useAuth();
 
   const isLoginPage = pathname.startsWith('/login');
+  const isLegalPage = pathname.startsWith('/privacy');
 
   const handleSearch = (e: FormEvent) => {
     e.preventDefault();
@@ -47,15 +48,18 @@ export default function Navbar() {
     if (q) router.push(`/search?q=${encodeURIComponent(q)}`);
   };
 
-  if (isLoginPage) {
+  if (isLoginPage || isLegalPage) {
     return (
       <header className="fixed top-0 left-0 right-0 z-50 h-14 border-b border-border bg-background/95 backdrop-blur-md">
-        <div className="mx-auto flex h-full max-w-lg items-center justify-center px-4">
+        <div className="mx-auto flex h-full max-w-3xl items-center justify-between px-4">
           <Link href="/">
             <span className="text-gold-gradient text-lg font-bold tracking-[0.15em] select-none">
               WAVMASH
             </span>
           </Link>
+          {isLegalPage && (
+            <span className="text-xs text-white/40">Privacy Policy</span>
+          )}
         </div>
       </header>
     );

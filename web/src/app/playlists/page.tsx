@@ -31,8 +31,6 @@ import {
 } from '@/lib/vibePalette';
 import PlaylistGrid from '@/components/PlaylistGrid';
 import PlaylistListByGenre from '@/components/PlaylistListByGenre';
-import SpotifySyncManager from '@/components/SpotifySyncManager';
-import YouTubeSyncManager from '@/components/YouTubeSyncManager';
 import PlaylistDetailPanel from '@/components/PlaylistDetailPanel';
 import { AnimatePresence } from 'framer-motion';
 
@@ -48,7 +46,6 @@ export default function PlaylistsPage() {
   const [creating, setCreating] = useState(false);
   const [autoParsing, setAutoParsing] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [syncTab, setSyncTab] = useState<'local' | 'youtube' | 'spotify'>('local');
   const [viewMode, setViewMode] = useState<PlaylistViewMode>('list');
   const [selected, setSelected] = useState<Playlist | null>(null);
 
@@ -140,158 +137,106 @@ export default function PlaylistsPage() {
       <div className="flex items-center justify-between mb-2 shrink-0 gap-2">
         <span className="text-[11px] text-white/30 tabular-nums">
           {playlists.length} / 30
-          {playlists.filter((p) => p.source === 'spotify' || p.sync_id).length > 0 && (
-            <span className="ml-2 text-[#1DB954]/70">
-              · Spotify {playlists.filter((p) => p.source === 'spotify' || p.sync_id).length}
-            </span>
-          )}
         </span>
         <div className="flex items-center gap-1 flex-wrap justify-end">
-          {/* Sync Tabs (Local / YouTube / Spotify) */}
-
-          <div className="flex items-center gap-1 glass rounded-lg p-0.5 mr-2">
-            <button
-              type="button"
-              onClick={() => setSyncTab('local')}
-              className={`text-xs px-2.5 py-1 rounded-md transition-all font-medium cursor-pointer ${
-                syncTab === 'local'
-                  ? 'bg-[#d4a853] text-black font-bold shadow'
-                  : 'text-white/50 hover:text-white'
-              }`}
+          <div className="flex items-center gap-0.5 glass rounded-lg p-0.5">
+            <Button
+              variant={viewMode === 'block' ? 'secondary' : 'ghost'}
+              size="icon"
+              className="h-6 w-6"
+              title="블록 보기"
+              onClick={() => changeViewMode('block')}
             >
-              보관함 플리
-            </button>
-            <button
-              type="button"
-              onClick={() => setSyncTab('youtube')}
-              className={`text-xs px-2.5 py-1 rounded-md transition-all font-medium cursor-pointer flex items-center gap-1 ${
-                syncTab === 'youtube'
-                  ? 'bg-red-600 text-white font-bold shadow'
-                  : 'text-white/50 hover:text-white'
-              }`}
+              <LayoutGrid className="h-3 w-3" />
+            </Button>
+            <Button
+              variant={viewMode === 'list' ? 'secondary' : 'ghost'}
+              size="icon"
+              className="h-6 w-6"
+              title="장르별 리스트"
+              onClick={() => changeViewMode('list')}
             >
-              <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
-              YouTube 플리 연동
-            </button>
-            <button
-              type="button"
-              onClick={() => setSyncTab('spotify')}
-              className={`text-xs px-2.5 py-1 rounded-md transition-all font-medium cursor-pointer flex items-center gap-1 ${
-                syncTab === 'spotify'
-                  ? 'bg-[#1DB954] text-black font-bold shadow'
-                  : 'text-white/50 hover:text-white'
-              }`}
-            >
-              <span className="w-1.5 h-1.5 rounded-full bg-[#1DB954]" />
-              Spotify 동기화
-            </button>
+              <List className="h-3 w-3" />
+            </Button>
           </div>
 
-          {syncTab === 'local' && (
-            <>
-              <div className="flex items-center gap-0.5 glass rounded-lg p-0.5">
-                <Button
-                  variant={viewMode === 'block' ? 'secondary' : 'ghost'}
-                  size="icon"
-                  className="h-6 w-6"
-                  title="블록 보기"
-                  onClick={() => changeViewMode('block')}
-                >
-                  <LayoutGrid className="h-3 w-3" />
-                </Button>
-                <Button
-                  variant={viewMode === 'list' ? 'secondary' : 'ghost'}
-                  size="icon"
-                  className="h-6 w-6"
-                  title="장르별 리스트"
-                  onClick={() => changeViewMode('list')}
-                >
-                  <List className="h-3 w-3" />
-                </Button>
-              </div>
+          <Button variant="outline" size="sm" onClick={handleAutoParse} disabled={autoParsing} className="gap-1 h-6 text-[10px] px-2">
+            {autoParsing ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <Sparkles className="h-2.5 w-2.5" />}
+            자동 분류
+          </Button>
+          <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+            <DialogTrigger render={<Button size="sm" className="bg-primary text-primary-foreground gap-1 h-6 text-[10px] px-2" />}>
+              <Plus className="h-2.5 w-2.5" /> 추가
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader><DialogTitle>새 플레이리스트</DialogTitle></DialogHeader>
+              <div className="space-y-4 pt-2">
+                <input
+                  type="text"
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                  placeholder="플레이리스트 이름..."
+                  className="w-full h-10 rounded-lg bg-white/5 border border-white/6 px-3 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:ring-1 focus:ring-[#d4a853]/50"
+                  onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
+                />
 
-              <Button variant="outline" size="sm" onClick={handleAutoParse} disabled={autoParsing} className="gap-1 h-6 text-[10px] px-2">
-                {autoParsing ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <Sparkles className="h-2.5 w-2.5" />}
-                자동 분류
-              </Button>
-              <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-                <DialogTrigger render={<Button size="sm" className="bg-primary text-primary-foreground gap-1 h-6 text-[10px] px-2" />}>
-                  <Plus className="h-2.5 w-2.5" /> 추가
-                </DialogTrigger>
-                <DialogContent>
-                  <DialogHeader><DialogTitle>새 로컬 플레이리스트</DialogTitle></DialogHeader>
-                  <div className="space-y-4 pt-2">
-                    <p className="text-[11px] text-white/40">
-                      로컬 전용 플리입니다. Spotify나 YouTube와 연동하려면 상단 탭에서 연동하세요.
-                    </p>
-                    <input
-                      type="text"
-                      value={newName}
-                      onChange={(e) => setNewName(e.target.value)}
-                      placeholder="플레이리스트 이름..."
-                      className="w-full h-10 rounded-lg bg-white/5 border border-white/6 px-3 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:ring-1 focus:ring-[#d4a853]/50"
-                      onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
-                    />
-
-                    <div className="space-y-2">
-                      <label className="text-[11px] text-white/40">바이브 / 장르</label>
-                      <div className="flex flex-wrap gap-1.5">
-                        {VIBE_CATEGORIES.map((cat) => (
-                          <button
-                            key={cat.id}
-                            type="button"
-                            onClick={() => { setNewVibe(cat.id); setNewShade(0); }}
-                            className={`flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] transition-colors border ${
-                              newVibe === cat.id
-                                ? 'border-white/30 bg-white/10 text-white/90'
-                                : 'border-white/8 text-white/45 hover:border-white/20'
-                            }`}
-                          >
-                            <span
-                              className="w-2.5 h-2.5 rounded-sm"
-                              style={{ background: cat.shades[0].hex }}
-                            />
-                            {cat.label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div className="space-y-2">
-                      <label className="text-[11px] text-white/40">톤 (밝기 / 세부)</label>
-                      <div className="flex flex-wrap gap-1.5">
-                        {selectedCategory.shades.map((s) => (
-                          <button
-                            key={s.shade}
-                            type="button"
-                            onClick={() => setNewShade(s.shade)}
-                            className={`flex items-center gap-1.5 rounded-md px-2 py-1.5 text-[11px] transition-colors border ${
-                              newShade === s.shade
-                                ? 'border-white/30 bg-white/10 text-white/90'
-                                : 'border-white/8 text-white/45 hover:border-white/20'
-                            }`}
-                          >
-                            <span
-                              className="w-4 h-4 rounded"
-                              style={{ background: s.hex, boxShadow: `0 0 0 1px ${s.hex}55` }}
-                            />
-                            {s.label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div className="flex justify-end gap-2">
-                      <Button variant="ghost" size="sm" onClick={() => setDialogOpen(false)}>취소</Button>
-                      <Button size="sm" onClick={handleCreate} disabled={!newName.trim() || creating} className="bg-primary text-primary-foreground">
-                        {creating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : '만들기'}
-                      </Button>
-                    </div>
+                <div className="space-y-2">
+                  <label className="text-[11px] text-white/40">바이브 / 장르</label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {VIBE_CATEGORIES.map((cat) => (
+                      <button
+                        key={cat.id}
+                        type="button"
+                        onClick={() => { setNewVibe(cat.id); setNewShade(0); }}
+                        className={`flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] transition-colors border ${
+                          newVibe === cat.id
+                            ? 'border-white/30 bg-white/10 text-white/90'
+                            : 'border-white/8 text-white/45 hover:border-white/20'
+                        }`}
+                      >
+                        <span
+                          className="w-2.5 h-2.5 rounded-sm"
+                          style={{ background: cat.shades[0].hex }}
+                        />
+                        {cat.label}
+                      </button>
+                    ))}
                   </div>
-                </DialogContent>
-              </Dialog>
-            </>
-          )}
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[11px] text-white/40">톤 (밝기 / 세부)</label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {selectedCategory.shades.map((s) => (
+                      <button
+                        key={s.shade}
+                        type="button"
+                        onClick={() => setNewShade(s.shade)}
+                        className={`flex items-center gap-1.5 rounded-md px-2 py-1.5 text-[11px] transition-colors border ${
+                          newShade === s.shade
+                            ? 'border-white/30 bg-white/10 text-white/90'
+                            : 'border-white/8 text-white/45 hover:border-white/20'
+                        }`}
+                      >
+                        <span
+                          className="w-4 h-4 rounded"
+                          style={{ background: s.hex, boxShadow: `0 0 0 1px ${s.hex}55` }}
+                        />
+                        {s.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-2">
+                  <Button variant="ghost" size="sm" onClick={() => setDialogOpen(false)}>취소</Button>
+                  <Button size="sm" onClick={handleCreate} disabled={!newName.trim() || creating} className="bg-primary text-primary-foreground">
+                    {creating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : '만들기'}
+                  </Button>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
         </div>
       </div>
 
@@ -302,39 +247,29 @@ export default function PlaylistsPage() {
       )}
 
       <div className="flex-1 min-h-0">
-        {syncTab === 'youtube' ? (
-          <div className="h-full overflow-y-auto max-w-5xl mx-auto pt-2 pb-6">
-            <YouTubeSyncManager />
+        <div className={`h-full grid gap-3 ${selected ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1'}`}>
+          <div className="min-h-0 overflow-hidden">
+            {viewMode === 'block' ? (
+              <PlaylistGrid playlists={playlists} onPlaylistClick={setSelected} />
+            ) : (
+              <PlaylistListByGenre
+                playlists={playlists}
+                onPlaylistClick={setSelected}
+                onAssignVibe={handleAssignVibe}
+              />
+            )}
           </div>
-        ) : syncTab === 'spotify' ? (
-          <div className="h-full overflow-y-auto max-w-4xl mx-auto pt-2 pb-6">
-            <SpotifySyncManager onSyncComplete={fetchPlaylists} />
-          </div>
-        ) : (
-          <div className={`h-full grid gap-3 ${selected ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1'}`}>
-            <div className="min-h-0 overflow-hidden">
-              {viewMode === 'block' ? (
-                <PlaylistGrid playlists={playlists} onPlaylistClick={setSelected} />
-              ) : (
-                <PlaylistListByGenre
-                  playlists={playlists}
-                  onPlaylistClick={setSelected}
-                  onAssignVibe={handleAssignVibe}
-                />
-              )}
-            </div>
-            <AnimatePresence mode="wait">
-              {selected && (
-                <PlaylistDetailPanel
-                  key={selected.name}
-                  playlist={selected}
-                  onClose={() => setSelected(null)}
-                  onSyncComplete={fetchPlaylists}
-                />
-              )}
-            </AnimatePresence>
-          </div>
-        )}
+          <AnimatePresence mode="wait">
+            {selected && (
+              <PlaylistDetailPanel
+                key={selected.name}
+                playlist={selected}
+                onClose={() => setSelected(null)}
+                onSyncComplete={fetchPlaylists}
+              />
+            )}
+          </AnimatePresence>
+        </div>
       </div>
 
     </div>
