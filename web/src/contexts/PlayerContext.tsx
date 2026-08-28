@@ -165,7 +165,28 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
             onError: (e: { data?: number }) => {
               console.warn('YouTube Player error:', e?.data ?? e);
               unmuteAfterPlayRef.current = false;
-              setState((prev) => ({ ...prev, isPlaying: false, engine: 'idle' }));
+              setState((prev) => {
+                const fallback = prev.currentTrack?.preview_url?.trim();
+                if (fallback) {
+                  try {
+                    if (!audioRef.current) {
+                      audioRef.current = new Audio();
+                      audioRef.current.volume = volumeRef.current;
+                    }
+                    const audio = audioRef.current;
+                    audio.src = fallback;
+                    void audio.play().catch(() => {});
+                    return {
+                      ...prev,
+                      isPlaying: true,
+                      engine: 'audio',
+                    };
+                  } catch {
+                    /* fall through */
+                  }
+                }
+                return { ...prev, isPlaying: false, engine: 'idle' };
+              });
             },
           },
         });

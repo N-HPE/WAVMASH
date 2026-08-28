@@ -584,7 +584,8 @@ def _search_new_tracks_for_genre(
 ) -> list[dict[str, Any]]:
     """장르 쿼리로 최근 발매곡을 모아 최신·인기 점수로 상위 N곡 반환.
 
-    속도 우선: 쿼리 최대 2개 × offset 0(limit=20) + tracks 보강 1회.
+    속도 우선: 쿼리 최대 2개 × offset 0(limit=10) + tracks 보강 1회.
+    (이 Spotify 앱은 search limit 최대 10 — 20이면 400 Invalid limit)
     """
     today = date.today()
     y1 = today.year
@@ -628,11 +629,16 @@ def _search_new_tracks_for_genre(
 
     for template in queries[:2]:
         q = template.format(y0=y0, y1=y1)
-        try:
-            data = sp.search(q=q, type="track", limit=20, offset=0, market="US")
-        except Exception:
-            continue
-        _consume(list((data.get("tracks") or {}).get("items") or []))
+        for offset in (0, 10):
+            if len(collected) >= target:
+                break
+            try:
+                data = sp.search(
+                    q=q, type="track", limit=10, offset=offset, market="US"
+                )
+            except Exception:
+                continue
+            _consume(list((data.get("tracks") or {}).get("items") or []))
         if len(collected) >= target:
             break
 
@@ -893,10 +899,13 @@ def get_single_genre_chart(genre_id: str, limit: int = 10) -> dict[str, Any]:
 
     capped = max(1, min(int(limit or 10), 20))
     today_key = date.today().isoformat()
-    cache_key = f"genre-v5:{gdef['id']}:{capped}"
+    cache_key = f"genre-v6:{gdef['id']}:{capped}"
     cached = _cache_get(cache_key)
     if cached:
-        return cached
+        # 빈 차트는 캐시 히트로 고착시키지 않음
+        cached_tracks = (cached.get("genres") or [{}])[0].get("tracks") or cached.get("tracks") or []
+        if cached_tracks:
+            return cached
 
     sp = _spotify_client()
     if gdef.get("source") == "beatport":
@@ -906,7 +915,8 @@ def get_single_genre_chart(genre_id: str, limit: int = 10) -> dict[str, Any]:
             sp, list(gdef["queries"]), limit=capped, lookback_days=180
         )
     result = _genre_payload(gdef, tracks, today_key=today_key)
-    _cache_set(cache_key, result)
+    if tracks:
+        _cache_set(cache_key, result)
     return result
 
 
@@ -914,10 +924,12 @@ def get_genre_new_charts(per_genre: int = 10) -> dict[str, Any]:
     """전체 장르 차트. 장르별 병렬 조회 + 캐시 재사용."""
     capped = max(1, min(int(per_genre or 10), 20))
     today_key = date.today().isoformat()
-    cache_key = f"genres-v5:{capped}"
+    cache_key = f"genres-v6:{capped}"
     cached = _cache_get(cache_key)
     if cached:
-        return cached
+        genres = cached.get("genres") or []
+        if any((g.get("tracks") or []) for g in genres):
+            return cached
 
     genres_out: list[dict[str, Any]] = []
 
@@ -958,7 +970,8 @@ def get_genre_new_charts(per_genre: int = 10) -> dict[str, Any]:
         "tracks": [],
         "genres": genres_out,
     }
-    _cache_set(cache_key, result)
+    if any((g.get("tracks") or []) for g in genres_out):
+        _cache_set(cache_key, result)
     return result
 
 

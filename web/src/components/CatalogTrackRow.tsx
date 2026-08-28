@@ -31,7 +31,7 @@ export default function CatalogTrackRow({
   if (youtubeId) {
     playerTrack.url = `https://www.youtube.com/watch?v=${youtubeId}`;
     playerTrack.external_id = youtubeId;
-    playerTrack.preview_url = undefined;
+    // preview 유지: YouTube embed 실패 시 Player가 폴백
     playerTrack.platform = 'youtube';
   }
 
@@ -45,6 +45,28 @@ export default function CatalogTrackRow({
 
     let next = { ...playerTrack };
     let resolvedYt: string | null = youtubeId;
+
+    // preview가 있으면 즉시 재생 (YouTube resolve 대기 없음)
+    if (!resolvedYt && track.preview_url) {
+      next = { ...next, preview_url: track.preview_url };
+      const q = (queue || [track]).map((t) => {
+        const mapped = catalogTrackToPlayerTrack(t);
+        return mapped.track_id === next.track_id ? next : mapped;
+      });
+      play(next, q);
+      // 백그라운드로 풀트랙 YouTube 해석 (다음 재생용)
+      void api
+        .resolveCatalogPreview(
+          track.title,
+          track.artist || track.primary_artist,
+          track.id
+        )
+        .then((res) => {
+          if (res.youtube_id) setYoutubeId(res.youtube_id);
+        })
+        .catch(() => {});
+      return;
+    }
 
     if (!resolvedYt) {
       setPreviewLoading(true);
@@ -61,7 +83,7 @@ export default function CatalogTrackRow({
             ...next,
             url: res.youtube_url || `https://www.youtube.com/watch?v=${res.youtube_id}`,
             external_id: res.youtube_id,
-            preview_url: undefined,
+            preview_url: track.preview_url || next.preview_url,
             platform: 'youtube',
           };
           setPreviewMissing(false);
@@ -89,7 +111,7 @@ export default function CatalogTrackRow({
         ...next,
         url: `https://www.youtube.com/watch?v=${resolvedYt}`,
         external_id: resolvedYt,
-        preview_url: undefined,
+        preview_url: track.preview_url || next.preview_url,
         platform: 'youtube',
       };
     }
