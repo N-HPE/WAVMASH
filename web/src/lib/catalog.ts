@@ -1,8 +1,17 @@
 import type { CatalogTrack, Track } from '@/lib/types';
 
 export function catalogTrackToPlayerTrack(item: CatalogTrack): Track {
+  const rawId = (item.id || '').trim();
+  const isBeatport = rawId.startsWith('bp:');
+  const trackId =
+    rawId.startsWith('sp:') || isBeatport ? rawId : `sp:${rawId}`;
+  const externalId = isBeatport
+    ? rawId.slice(3)
+    : rawId.startsWith('sp:')
+      ? rawId.slice(3)
+      : rawId;
   return {
-    track_id: `sp:${item.id}`,
+    track_id: trackId,
     title: item.title,
     artist: item.artist,
     primary_artist: item.primary_artist || item.artist,
@@ -13,7 +22,7 @@ export function catalogTrackToPlayerTrack(item: CatalogTrack): Track {
     key: '',
     camelot_key: '',
     energy_level: 0,
-    platform: 'spotify',
+    platform: isBeatport ? 'beatport' : 'spotify',
     url: item.spotify_url,
     thumbnail_url: item.thumbnail_url,
     has_cover: Boolean(item.thumbnail_url),
@@ -21,7 +30,7 @@ export function catalogTrackToPlayerTrack(item: CatalogTrack): Track {
     preview_url: item.preview_url || undefined,
     popularity: item.popularity,
     duration_ms: item.duration_ms,
-    external_id: item.id,
+    external_id: externalId,
   };
 }
 

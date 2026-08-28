@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timedelta, timezone
@@ -18,6 +19,10 @@ from fastapi import HTTPException
 from spotify_metadata import _user_spotify_credentials
 
 logger = logging.getLogger("wavemash.catalog")
+
+# Beatport Top 100 페이지 (Cloudflare → curl_cffi). 실패 시 Spotify 미러 플리.
+_BEATPORT_TOP100_URL = "https://www.beatport.com/top-100"
+_BEATPORT_SPOTIFY_FALLBACK_PLAYLIST = "4W7jnrqeKfVEnb1BVHMG5b"
 
 # Spotify Charts 공개 엔드포인트 (음반 차트 등 보조)
 _SPOTIFY_PUBLIC_CHARTS_URL = (
@@ -65,13 +70,9 @@ _GENRE_CHART_DEFS: list[dict[str, Any]] = [
     },
     {
         "id": "dance",
-        "label": "댄스",
-        "queries": ["genre:dance year:{y1}", "dance pop year:{y1}"],
-    },
-    {
-        "id": "rock",
-        "label": "록",
-        "queries": ["genre:rock year:{y1}", "rock year:{y1}"],
+        "label": "Beatport",
+        "source": "beatport",
+        "queries": [],
     },
     {
         "id": "indie",
@@ -669,16 +670,207 @@ def _search_new_tracks_for_genre(
     return out
 
 
+def _beatport_image_uri(raw: Any, size: int = 300) -> str:
+    if isinstance(raw, dict):
+        dyn = str(raw.get("dynamic_uri") or "")
+        if "{w}" in dyn and "{h}" in dyn:
+            return dyn.replace("{w}", str(size)).replace("{h}", str(size))
+        return str(raw.get("uri") or "")
+    return ""
+
+
+def _scrape_beatport_top_tracks(limit: int = 10) -> list[dict[str, Any]]:
+    """Beatport.com Top 100 HTML → __NEXT_DATA__ 트랙 목록."""
+    try:
+        from curl_cffi import requests as creq
+    except ImportError as exc:
+        raise RuntimeError("curl_cffi 미설치") from exc
+
+    resp = creq.get(_BEATPORT_TOP100_URL, impersonate="chrome120", timeout=45)
+    if resp.status_code != 200:
+        raise RuntimeError(f"Beatport HTTP {resp.status_code}")
+    match = re.search(
+        r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>',
+        resp.text,
+        re.S,
+    )
+    if not match:
+        raise RuntimeError("Beatport __NEXT_DATA__ 없음")
+    payload = json.loads(match.group(1))
+    queries = (
+        ((payload.get("props") or {}).get("pageProps") or {})
+        .get("dehydratedState", {})
+        .get("queries")
+        or []
+    )
+    results: list[dict[str, Any]] = []
+    for q in queries:
+        data = ((q or {}).get("state") or {}).get("data")
+        if isinstance(data, dict) and isinstance(data.get("results"), list):
+            results = list(data["results"])
+            break
+    if not results:
+        raise RuntimeError("Beatport Top 100 결과 없음")
+    return results[: max(1, min(int(limit or 10), 100))]
+
+
+def _spotify_match_beatport_track(sp: Any, bp: dict[str, Any]) -> dict[str, Any] | None:
+    """ISRC → 제목+아티스트 순으로 Spotify 트랙 매칭."""
+    isrc = str(bp.get("isrc") or "").strip()
+    if isrc:
+        try:
+            data = sp.search(q=f"isrc:{isrc}", type="track", limit=1, market="US")
+            items = list((data.get("tracks") or {}).get("items") or [])
+            if items and items[0]:
+                return items[0]
+        except Exception:
+            logger.debug("ISRC search failed %s", isrc, exc_info=True)
+
+    title = str(bp.get("name") or "").strip()
+    artists = [
+        str(a.get("name") or "").strip()
+        for a in (bp.get("artists") or [])
+        if isinstance(a, dict) and a.get("name")
+    ]
+    if not title:
+        return None
+    primary = artists[0] if artists else ""
+    queries = []
+    if primary:
+        queries.append(f'track:"{title}" artist:"{primary}"')
+        queries.append(f"{title} {primary}")
+    else:
+        queries.append(f'track:"{title}"')
+    for q in queries:
+        try:
+            data = sp.search(q=q, type="track", limit=5, market="US")
+        except Exception:
+            continue
+        items = list((data.get("tracks") or {}).get("items") or [])
+        title_l = title.lower()
+        for item in items:
+            if not item:
+                continue
+            name = str(item.get("name") or "").lower()
+            if title_l in name or name in title_l or name.split("(")[0].strip() == title_l:
+                return item
+        if items and items[0]:
+            return items[0]
+    return None
+
+
+def _beatport_fallback_payload(bp: dict[str, Any], rank: int) -> dict[str, Any]:
+    bp_id = bp.get("id")
+    slug = str(bp.get("slug") or "track").strip() or "track"
+    artists = [
+        str(a.get("name") or "").strip()
+        for a in (bp.get("artists") or [])
+        if isinstance(a, dict) and a.get("name")
+    ]
+    artist_names = ", ".join(artists)
+    release = bp.get("release") if isinstance(bp.get("release"), dict) else {}
+    thumb = _beatport_image_uri(release.get("image")) or _beatport_image_uri(bp.get("image"))
+    mix = str(bp.get("mix_name") or "").strip()
+    title = str(bp.get("name") or "").strip()
+    if mix and mix.lower() not in {"original mix", "extended mix"}:
+        title = f"{title} ({mix})" if title else mix
+    return {
+        "id": f"bp:{bp_id}",
+        "title": title,
+        "artist": artist_names,
+        "primary_artist": artists[0] if artists else "",
+        "album": str((release or {}).get("name") or ""),
+        "thumbnail_url": thumb,
+        "spotify_url": f"https://www.beatport.com/track/{slug}/{bp_id}",
+        "preview_url": str(bp.get("sample_url") or ""),
+        "popularity": 0,
+        "duration_ms": int(bp.get("length_ms") or 0),
+        "explicit": bool(bp.get("is_explicit")),
+        "rank": rank,
+        "item_type": "track",
+        "release_date": str(bp.get("publish_date") or bp.get("new_release_date") or ""),
+    }
+
+
+def _tracks_from_spotify_playlist(sp: Any, playlist_id: str, limit: int) -> list[dict[str, Any]]:
+    try:
+        data = sp.playlist_items(
+            playlist_id,
+            fields="items(track(id,name,artists,album,external_urls,preview_url,popularity,duration_ms,explicit))",
+            additional_types=["track"],
+            limit=min(max(limit, 1), 50),
+            market="US",
+        )
+    except Exception:
+        logger.warning("Beatport Spotify fallback playlist failed", exc_info=True)
+        return []
+    out: list[dict[str, Any]] = []
+    for i, row in enumerate(data.get("items") or [], start=1):
+        track = (row or {}).get("track")
+        if not track or not track.get("id"):
+            continue
+        payload = _track_payload(track)
+        payload["rank"] = i
+        payload["item_type"] = "track"
+        payload["release_date"] = str((track.get("album") or {}).get("release_date") or "")
+        out.append(payload)
+        if len(out) >= limit:
+            break
+    return out
+
+
+def _get_beatport_top_chart_tracks(sp: Any, limit: int = 10) -> list[dict[str, Any]]:
+    """Beatport Top N → Spotify 매칭(가능 시) + 미리듣기 URL."""
+    capped = max(1, min(int(limit or 10), 20))
+    raw_tracks: list[dict[str, Any]] = []
+    try:
+        raw_tracks = _scrape_beatport_top_tracks(limit=capped)
+    except Exception as exc:
+        logger.warning("Beatport scrape failed, using Spotify mirror: %s", exc)
+        return _tracks_from_spotify_playlist(sp, _BEATPORT_SPOTIFY_FALLBACK_PLAYLIST, capped)
+
+    out: list[dict[str, Any]] = []
+    for i, bp in enumerate(raw_tracks, start=1):
+        matched = _spotify_match_beatport_track(sp, bp)
+        sample = str(bp.get("sample_url") or "")
+        if matched:
+            payload = _track_payload(matched)
+            if not payload.get("preview_url") and sample:
+                payload["preview_url"] = sample
+            # Beatport 커버가 더 선명할 때 보강
+            if not payload.get("thumbnail_url"):
+                release = bp.get("release") if isinstance(bp.get("release"), dict) else {}
+                payload["thumbnail_url"] = (
+                    _beatport_image_uri(release.get("image"))
+                    or _beatport_image_uri(bp.get("image"))
+                )
+            payload["rank"] = i
+            payload["item_type"] = "track"
+            payload["release_date"] = str(
+                (matched.get("album") or {}).get("release_date")
+                or bp.get("publish_date")
+                or ""
+            )
+            out.append(payload)
+        else:
+            out.append(_beatport_fallback_payload(bp, i))
+    return out
+
+
 def _genre_payload(
     gdef: dict[str, Any],
     tracks: list[dict[str, Any]],
     *,
     today_key: str,
 ) -> dict[str, Any]:
+    if gdef.get("source") == "beatport":
+        playlist_name = "Beatport Top 10"
+    else:
+        playlist_name = f"{gdef['label']} Popular Recent"
     return {
         "region": gdef["id"],
         "region_label": gdef["label"],
-        "playlist_name": f"{gdef['label']} Popular Recent",
+        "playlist_name": playlist_name,
         "playlist_id": f"genre-{gdef['id']}",
         "chart_date": today_key,
         "updated_at": datetime.now(timezone.utc).isoformat(),
@@ -701,15 +893,18 @@ def get_single_genre_chart(genre_id: str, limit: int = 10) -> dict[str, Any]:
 
     capped = max(1, min(int(limit or 10), 20))
     today_key = date.today().isoformat()
-    cache_key = f"genre-v4:{gdef['id']}:{capped}"
+    cache_key = f"genre-v5:{gdef['id']}:{capped}"
     cached = _cache_get(cache_key)
     if cached:
         return cached
 
     sp = _spotify_client()
-    tracks = _search_new_tracks_for_genre(
-        sp, list(gdef["queries"]), limit=capped, lookback_days=180
-    )
+    if gdef.get("source") == "beatport":
+        tracks = _get_beatport_top_chart_tracks(sp, limit=capped)
+    else:
+        tracks = _search_new_tracks_for_genre(
+            sp, list(gdef["queries"]), limit=capped, lookback_days=180
+        )
     result = _genre_payload(gdef, tracks, today_key=today_key)
     _cache_set(cache_key, result)
     return result
@@ -719,7 +914,7 @@ def get_genre_new_charts(per_genre: int = 10) -> dict[str, Any]:
     """전체 장르 차트. 장르별 병렬 조회 + 캐시 재사용."""
     capped = max(1, min(int(per_genre or 10), 20))
     today_key = date.today().isoformat()
-    cache_key = f"genres-v4:{capped}"
+    cache_key = f"genres-v5:{capped}"
     cached = _cache_get(cache_key)
     if cached:
         return cached

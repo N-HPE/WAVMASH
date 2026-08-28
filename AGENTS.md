@@ -8,6 +8,12 @@ WaveMash — 로컬 음악 보관소. YouTube/SoundCloud/Spotify 링크로 WAV�
 
 표준 셋업/실행 명령은 `README.md`, `scripts/setup_dev.sh`, `start_wavemash.sh`, `web/package.json`에 이미 문서화되어 있으니 그쪽을 참고하세요.
 
+## 배포 파이프라인 (자동)
+
+기능/수정 작업이 끝나면 **커밋·푸시 여부를 묻지 말고** `main`에 커밋 후 `git push origin main` 한다.
+`main` 푸시 → **Vercel**(프론트 https://wavmash.vercel.app) + **Render**(백엔드 https://wavmash-backend.onrender.com, `render.yaml` autoDeploy)가 자동 배포한다.
+시크릿·`.cache`·임시 파일은 커밋하지 않는다. 자세한 에이전트 규칙은 `.cursor/rules/auto-deploy.mdc`.
+
 ## Cursor Cloud specific instructions
 
 이 환경은 업데이트 스크립트가 의존성(Python `.venv` + `web/node_modules`)을 이미 설치한 상태로 시작합니다. 아래는 서비스를 안전하게 띄우기 위한 비자명한 주의사항입니다.
