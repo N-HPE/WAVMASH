@@ -6,7 +6,6 @@ import {
   Home,
   Library,
   ListMusic,
-  Download,
   User as UserIcon,
   Compass,
 } from 'lucide-react';
@@ -17,7 +16,6 @@ const NAV_ITEMS = [
   { label: '검색', href: '/search', icon: Compass },
   { label: '라이브러리', href: '/library', icon: Library },
   { label: '플레이리스트', href: '/playlists', icon: ListMusic },
-  { label: '다운로드', href: '/download', icon: Download },
 ] as const;
 
 export default function Sidebar() {

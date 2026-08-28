@@ -237,7 +237,7 @@ function LibraryPageInner() {
             <p className="text-sm text-muted-foreground mb-6">
               첫 번째 트랙을 다운로드하여 컬렉션을 시작하세요.
             </p>
-            <Link href="/download">
+            <Link href="/">
               <Button className="bg-primary text-primary-foreground">
                 <Download className="h-4 w-4 mr-2" />
                 다운로드하러 가기
