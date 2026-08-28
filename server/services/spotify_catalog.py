@@ -81,6 +81,66 @@ def _artist_payload(item: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _youtube_search(artist: str, title: str) -> dict[str, str]:
+    """yt-dlp ytsearch로 매칭 영상 ID를 찾는다 (다운로드 없음)."""
+    query = " ".join(p for p in (artist, title, "audio") if p).strip()
+    if not query:
+        return {}
+    try:
+        import yt_dlp
+    except ImportError:
+        return {}
+
+    opts = {
+        "quiet": True,
+        "no_warnings": True,
+        "extract_flat": "in_playlist",
+        "skip_download": True,
+        "noplaylist": True,
+    }
+    try:
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(f"ytsearch1:{query}", download=False)
+    except Exception:
+        return {}
+
+    entries = (info or {}).get("entries") or []
+    if not entries:
+        return {}
+    entry = entries[0] or {}
+    vid = str(entry.get("id") or "").strip()
+    if not vid or len(vid) != 11:
+        return {}
+    return {
+        "youtube_id": vid,
+        "youtube_url": f"https://www.youtube.com/watch?v={vid}",
+    }
+
+
+def resolve_preview(artist: str, title: str, spotify_id: str = "") -> dict[str, str]:
+    """카탈로그 미리듣기: YouTube 영상을 찾아 인페이지 재생용 ID를 반환."""
+    _ = spotify_id  # 호환용 (프론트에서 넘김)
+    return _resolve_preview_cached(
+        (artist or "").strip(),
+        (title or "").strip(),
+    )
+
+
+@lru_cache(maxsize=256)
+def _resolve_preview_cached(artist: str, title: str) -> dict[str, str]:
+    empty = {"youtube_id": "", "youtube_url": "", "preview_url": ""}
+    if not title:
+        return empty
+    yt = _youtube_search(artist, title)
+    if yt.get("youtube_id"):
+        return {
+            "youtube_id": yt["youtube_id"],
+            "youtube_url": yt["youtube_url"],
+            "preview_url": "",
+        }
+    return empty
+
+
 def search_catalog(query: str) -> dict[str, Any]:
     q = (query or "").strip()
     if not q:

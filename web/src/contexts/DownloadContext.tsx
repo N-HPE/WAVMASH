@@ -20,6 +20,7 @@ export type ExportFormat = 'wav' | 'mp3';
 
 interface DownloadContextValue {
   active: boolean;
+  activeUrl: string | null;
   progress: DownloadProgress | null;
   error: string | null;
   completedTracks: Track[];
@@ -40,6 +41,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
   const [progress, setProgress] = useState<DownloadProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [active, setActive] = useState(false);
+  const [activeUrl, setActiveUrl] = useState<string | null>(null);
   const [completedTracks, setCompletedTracks] = useState<Track[]>([]);
   const [exportFormat, setExportFormat] = useState<ExportFormat>(() =>
     preferMobileMp3() ? 'mp3' : 'wav'
@@ -53,14 +55,19 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
     setProgress(null);
     setError(null);
     setActive(false);
+    setActiveUrl(null);
     setCompletedTracks([]);
   }, []);
 
   const startDownload = useCallback(
     async (url: string, format?: ExportFormat) => {
+      const trimmed = url.trim();
+      if (!trimmed) return;
+
       cleanupRef.current?.();
       const fmt = format || exportFormat;
       setActive(true);
+      setActiveUrl(trimmed);
       setError(null);
       setCompletedTracks([]);
       setProgress({
@@ -73,7 +80,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
       });
 
       try {
-        const { job_id } = await api.startDownload(url.trim(), fmt);
+        const { job_id } = await api.startDownload(trimmed, fmt);
         setProgress((prev) =>
           prev
             ? {
@@ -96,6 +103,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
                 : [];
             setCompletedTracks(tracks);
             setActive(false);
+            setActiveUrl(null);
             cleanupRef.current = null;
 
             tracks.forEach((t) => {
@@ -140,6 +148,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
           if (data.status === 'failed') {
             setError(data.error || data.message || '알 수 없는 오류가 발생했습니다.');
             setActive(false);
+            setActiveUrl(null);
             cleanupRef.current = null;
           }
         });
@@ -148,6 +157,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
           err instanceof Error ? err.message : '다운로드를 시작할 수 없습니다.'
         );
         setActive(false);
+        setActiveUrl(null);
         setProgress(null);
       }
     },
@@ -157,6 +167,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
   const value = useMemo(
     () => ({
       active,
+      activeUrl,
       progress,
       error,
       completedTracks,
@@ -165,7 +176,16 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
       startDownload,
       clear,
     }),
-    [active, progress, error, completedTracks, exportFormat, startDownload, clear]
+    [
+      active,
+      activeUrl,
+      progress,
+      error,
+      completedTracks,
+      exportFormat,
+      startDownload,
+      clear,
+    ]
   );
 
   return (

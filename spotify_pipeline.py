@@ -358,6 +358,21 @@ def process_spotify_url_sync(url, progress_callback=None, export_format: str = '
     if not all_songs:
         raise RuntimeError('Spotify에서 곡 목록을 가져오지 못했습니다.')
 
+    # 트랙 URL이면 해당 곡 1개만 받도록 강제 (목록/앨범으로 확장되는 경우 방지)
+    kind = _spotify_resource_kind(url)
+    if kind == 'track':
+        tid = spotify_track_id(url)
+        if tid:
+            matched = [
+                s
+                for s in all_songs
+                if str(getattr(s, 'song_id', '') or '') == tid
+                or spotify_track_id(str(getattr(s, 'url', '') or '')) == tid
+            ]
+            all_songs = matched or all_songs[:1]
+        else:
+            all_songs = all_songs[:1]
+
     songs_by_id = {str(s.song_id): s for s in all_songs if getattr(s, 'song_id', None)}
     to_download = [s for s in all_songs if not is_track_in_library(library, s)]
     skipped = len(all_songs) - len(to_download)
@@ -404,11 +419,9 @@ def process_spotify_url_sync(url, progress_callback=None, export_format: str = '
     if not download_urls:
         raise RuntimeError('다운로드할 Spotify 트랙 URL이 없습니다.')
 
-    kind = _spotify_resource_kind(url)
     # 전체 플리 URL 일괄 다운로드는 spotdl이 일부 곡을 조용히 빠뜨리는 경우가 있어
     # 개별 트랙 URL로 받는 편이 동기화 신뢰도가 높다.
     spotdl_targets = download_urls
-    _ = kind  # reserved for future playlist-level optimizations
 
     # spotdl은 일괄 실행이라 하트비트로 "살아있음"을 표시
     stop_pulse = threading.Event()

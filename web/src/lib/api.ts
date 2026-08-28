@@ -362,6 +362,24 @@ class WaveMashAPI {
     );
   }
 
+  async resolveCatalogPreview(
+    title: string,
+    artist: string,
+    spotifyId?: string
+  ): Promise<{ youtube_id: string; youtube_url: string; preview_url: string }> {
+    return this.fetch<{
+      youtube_id: string;
+      youtube_url: string;
+      preview_url: string;
+    }>(
+      `/api/catalog/preview${this.buildQueryString({
+        title,
+        artist,
+        spotify_id: spotifyId || '',
+      })}`
+    );
+  }
+
   /* ── Spotify Sync Endpoints ── */
 
   async getSpotifySyncConfigs(): Promise<import('./types').SpotifySyncConfig[]> {

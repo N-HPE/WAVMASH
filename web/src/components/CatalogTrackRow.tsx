@@ -1,9 +1,12 @@
 'use client';
 
+import { useState } from 'react';
+import type { MouseEvent } from 'react';
 import { Download, Loader2, Pause, Play } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useDownload } from '@/contexts/DownloadContext';
 import { usePlayer } from '@/contexts/PlayerContext';
+import api from '@/lib/api';
 import type { CatalogTrack } from '@/lib/types';
 import { catalogTrackToPlayerTrack, formatDuration } from '@/lib/catalog';
 
@@ -13,24 +16,93 @@ interface CatalogTrackRowProps {
   queue?: CatalogTrack[];
 }
 
+function trackSpotifyUrl(track: CatalogTrack): string {
+  if (track.spotify_url?.includes('/track/')) {
+    return track.spotify_url.split('?')[0];
+  }
+  if (track.id) return `https://open.spotify.com/track/${track.id}`;
+  return (track.spotify_url || '').split('?')[0];
+}
+
 export default function CatalogTrackRow({
   track,
   rank,
   queue,
 }: CatalogTrackRowProps) {
   const { play, togglePlay, currentTrack, isPlaying } = usePlayer();
-  const { startDownload, active } = useDownload();
-  const playerTrack = catalogTrackToPlayerTrack(track);
-  const isCurrent = currentTrack?.track_id === playerTrack.track_id;
-  const canPreview = Boolean(track.preview_url);
+  const { startDownload, active, activeUrl } = useDownload();
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewMissing, setPreviewMissing] = useState(false);
+  const [youtubeId, setYoutubeId] = useState<string | null>(null);
 
-  const handlePlay = () => {
+  const playerTrack = catalogTrackToPlayerTrack(track);
+  if (youtubeId) {
+    playerTrack.url = `https://www.youtube.com/watch?v=${youtubeId}`;
+    playerTrack.external_id = youtubeId;
+    playerTrack.preview_url = undefined;
+    playerTrack.platform = 'youtube';
+  }
+
+  const isCurrent = currentTrack?.track_id === playerTrack.track_id;
+  const downloadUrl = trackSpotifyUrl(track);
+  const isThisDownloading =
+    active &&
+    !!downloadUrl &&
+    (activeUrl === downloadUrl ||
+      (!!track.id && !!activeUrl && activeUrl.includes(track.id)));
+
+  const handlePlay = async () => {
     if (isCurrent) {
       togglePlay();
       return;
     }
-    const q = (queue || [track]).map(catalogTrackToPlayerTrack);
-    play(playerTrack, q);
+
+    let next = { ...playerTrack };
+
+    if (!youtubeId) {
+      setPreviewLoading(true);
+      try {
+        const res = await api.resolveCatalogPreview(
+          track.title,
+          track.artist || track.primary_artist,
+          track.id
+        );
+        if (res.youtube_id) {
+          setYoutubeId(res.youtube_id);
+          next = {
+            ...next,
+            url: res.youtube_url || `https://www.youtube.com/watch?v=${res.youtube_id}`,
+            external_id: res.youtube_id,
+            preview_url: undefined,
+            platform: 'youtube',
+          };
+          setPreviewMissing(false);
+        } else {
+          setPreviewMissing(true);
+          setPreviewLoading(false);
+          return;
+        }
+      } catch {
+        setPreviewMissing(true);
+        setPreviewLoading(false);
+        return;
+      } finally {
+        setPreviewLoading(false);
+      }
+    }
+
+    const q = (queue || [track]).map((t) => {
+      const mapped = catalogTrackToPlayerTrack(t);
+      return mapped.track_id === next.track_id ? next : mapped;
+    });
+    play(next, q);
+  };
+
+  const handleDownload = (e: MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (active || !downloadUrl) return;
+    void startDownload(downloadUrl);
   };
 
   return (
@@ -41,10 +113,14 @@ export default function CatalogTrackRow({
 
       <button
         type="button"
-        onClick={handlePlay}
-        disabled={!canPreview && !isCurrent}
+        onClick={() => void handlePlay()}
+        disabled={previewLoading}
         className="relative h-11 w-11 shrink-0 overflow-hidden rounded-md bg-secondary"
-        title={canPreview ? '미리듣기' : '미리듣기가 없는 곡입니다'}
+        title={
+          previewMissing
+            ? 'YouTube에서 곡을 찾지 못했습니다'
+            : 'YouTube로 재생'
+        }
       >
         {track.thumbnail_url ? (
           <img
@@ -57,10 +133,14 @@ export default function CatalogTrackRow({
         )}
         <div
           className={`absolute inset-0 flex items-center justify-center bg-black/45 transition-opacity ${
-            isCurrent ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+            isCurrent || previewLoading
+              ? 'opacity-100'
+              : 'opacity-0 group-hover:opacity-100'
           }`}
         >
-          {isCurrent && isPlaying ? (
+          {previewLoading ? (
+            <Loader2 className="h-4 w-4 text-white animate-spin" />
+          ) : isCurrent && isPlaying ? (
             <Pause className="h-4 w-4 text-white fill-white" />
           ) : (
             <Play className="h-4 w-4 text-white fill-white" />
@@ -90,11 +170,11 @@ export default function CatalogTrackRow({
         type="button"
         size="sm"
         variant="outline"
-        disabled={active || !track.spotify_url}
+        disabled={active || !downloadUrl}
         className="shrink-0 h-8 gap-1.5 text-xs"
-        onClick={() => startDownload(track.spotify_url)}
+        onClick={handleDownload}
       >
-        {active ? (
+        {isThisDownloading ? (
           <Loader2 className="h-3.5 w-3.5 animate-spin" />
         ) : (
           <Download className="h-3.5 w-3.5" />

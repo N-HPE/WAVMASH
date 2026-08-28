@@ -229,8 +229,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
           engine: 'audio',
         }));
       }
-      // B. Spotify / catalog 30s preview
-      else if (previewUrl) {
+      // B. Spotify / catalog 30s preview (YouTube URL이 있으면 C로)
+      else if (previewUrl && !ytId) {
         if (ytPlayerRef.current?.pauseVideo) {
           try {
             ytPlayerRef.current.pauseVideo();
@@ -254,22 +254,34 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
           engine: 'audio',
         }));
       }
-      // C. YouTube-based track
+      // C. YouTube — 숨김 iframe으로 인페이지 재생 (화면 이동 없음)
       else if (ytId) {
         if (audioRef.current) {
           audioRef.current.pause();
         }
 
-        if (ytPlayerRef.current?.loadVideoById) {
+        const startYt = () => {
+          const player = ytPlayerRef.current;
+          if (!player?.loadVideoById) return false;
           try {
-            ytPlayerRef.current.loadVideoById({
+            player.loadVideoById({
               videoId: ytId,
               startSeconds: 0,
             });
-            ytPlayerRef.current.playVideo();
+            player.playVideo();
+            return true;
           } catch (err) {
             console.warn('YT loadVideoById failed:', err);
+            return false;
           }
+        };
+
+        if (!startYt()) {
+          let tries = 0;
+          const timer = setInterval(() => {
+            tries += 1;
+            if (startYt() || tries >= 25) clearInterval(timer);
+          }, 200);
         }
 
         setState((prev) => ({

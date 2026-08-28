@@ -8,7 +8,6 @@ import api from '@/lib/api';
 import type { CatalogSearchResult } from '@/lib/types';
 import CatalogTrackRow from '@/components/CatalogTrackRow';
 import { Skeleton } from '@/components/ui/skeleton';
-import { formatFollowers } from '@/lib/catalog';
 
 function SearchInner() {
   const params = useSearchParams();
@@ -98,9 +97,6 @@ function SearchInner() {
                     </div>
                     <p className="truncate text-sm font-semibold text-center">
                       {artist.name}
-                    </p>
-                    <p className="text-[11px] text-muted-foreground text-center">
-                      {formatFollowers(artist.followers)} 팔로워
                     </p>
                   </Link>
                 ))}
