@@ -3,6 +3,7 @@ import { Inter } from 'next/font/google';
 import './globals.css';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import Navbar from '@/components/Navbar';
+import AppShell from '@/components/AppShell';
 import { PlayerProvider } from '@/contexts/PlayerContext';
 import { DownloadProvider } from '@/contexts/DownloadContext';
 import { AuthProvider } from '@/contexts/AuthContext';
@@ -18,7 +19,7 @@ const inter = Inter({
 export const metadata: Metadata = {
   title: 'WaveMash — 디거들의 바이닐 & 무손실 음악 쇼케이스',
   description:
-    '내가 소장한 명곡과 바이닐/WAV 컬렉션을 자랑하고, 친구들과 피드로 디깅하며 소통하는 인스타그램 감성의 음악 소셜 플랫폼.',
+    '내가 소장한 명곡과 바이닐/WAV 컬렉션을 자랑하고, 친구들과 피드로 디깅하며 소통하는 음악 소셜 플랫폼.',
   keywords: ['음악', '컬렉션', '바이닐', 'WAV', '디깅', '소셜', 'Lossless'],
 };
 
@@ -45,7 +46,9 @@ export default function RootLayout({
             <PlayerProvider>
               <DownloadProvider>
                 <Navbar />
-                <main className="pt-16 pb-28 sm:pb-24">{children}</main>
+                <main className="pb-28 sm:pb-24">
+                  <AppShell>{children}</AppShell>
+                </main>
                 <DownloadProgressBar />
                 <MiniPlayer />
                 <MobileBottomNav />
@@ -57,4 +60,3 @@ export default function RootLayout({
     </html>
   );
 }
-

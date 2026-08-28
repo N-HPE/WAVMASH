@@ -1,13 +1,18 @@
 'use client';
 
-/* ──────────────────────────────────────────────
-   WaveMash — Navigation Bar
-   ────────────────────────────────────────────── */
-
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, Menu, X, User as UserIcon } from 'lucide-react';
+import {
+  Search,
+  Menu,
+  X,
+  User as UserIcon,
+  Home,
+  Library,
+  ListMusic,
+  Download,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
@@ -21,125 +26,128 @@ import {
 } from '@/components/ui/dropdown-menu';
 
 const NAV_ITEMS = [
-  { label: '피드', href: '/' },
-  { label: '탐색 (Library)', href: '/library' },
-  { label: '플레이리스트', href: '/playlists' },
-  { label: '음원 소장', href: '/download' },
+  { label: '피드', href: '/', icon: Home },
+  { label: '탐색', href: '/library', icon: Library },
+  { label: '플레이리스트', href: '/playlists', icon: ListMusic },
+  { label: '음원 소장', href: '/download', icon: Download },
 ] as const;
-
 
 export default function Navbar() {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
   const { user, profile, signOut } = useAuth();
 
+  const isLoginPage = pathname.startsWith('/login');
+
+  if (isLoginPage) {
+    return (
+      <header className="fixed top-0 left-0 right-0 z-50 h-14 border-b border-border bg-background/95 backdrop-blur-md">
+        <div className="mx-auto flex h-full max-w-lg items-center justify-center px-4">
+          <Link href="/">
+            <span className="text-gold-gradient text-lg font-bold tracking-[0.15em] select-none">
+              WAVMASH
+            </span>
+          </Link>
+        </div>
+      </header>
+    );
+  }
+
   return (
-    <header className="fixed top-0 left-0 right-0 z-50 h-16 glass-strong">
-      <div className="mx-auto flex h-full max-w-7xl items-center justify-between px-4 sm:px-6">
-        {/* ── Logo ── */}
-        <Link href="/" className="flex-shrink-0">
-          <span className="text-gold-gradient text-xl font-bold tracking-[0.2em] select-none">
-            WAVMASH
+    <header className="fixed top-0 left-0 right-0 z-50 h-14 border-b border-border bg-background/95 backdrop-blur-md">
+      <div className="flex h-full items-center gap-3 px-4 lg:pl-[calc(240px+1rem)]">
+        <Link href="/" className="flex-shrink-0 lg:hidden">
+          <span className="text-gold-gradient text-lg font-bold tracking-[0.1em] select-none">
+            W
           </span>
         </Link>
 
-        {/* ── Desktop Nav ── */}
-        <nav className="hidden md:flex items-center gap-1">
-          {NAV_ITEMS.map((item) => {
-            const isActive =
-              item.href === '/'
-                ? pathname === '/'
-                : pathname.startsWith(item.href);
+        <div className="flex-1 max-w-xl mx-auto">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <input
+              type="text"
+              placeholder="트랙, 아티스트 검색..."
+              className="w-full h-9 rounded-full bg-secondary border border-border pl-9 pr-4 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:ring-1 focus:ring-[#d4a853]/40 transition-shadow"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  const q = (e.target as HTMLInputElement).value.trim();
+                  if (q) window.location.href = `/library?search=${encodeURIComponent(q)}`;
+                }
+              }}
+            />
+          </div>
+        </div>
 
-            return (
-              <Link key={item.href} href={item.href}>
-                <motion.div
-                  className="relative px-4 py-2 text-sm font-medium transition-colors"
-                  style={{
-                    color: isActive
-                      ? '#d4a853'
-                      : 'rgba(255, 255, 255, 0.6)',
-                  }}
-                  whileHover={{ color: '#d4a853' }}
-                >
-                  {item.label}
-                  {isActive && (
-                    <motion.div
-                      className="absolute bottom-0 left-2 right-2 h-[2px] rounded-full"
-                      style={{
-                        background:
-                          'linear-gradient(90deg, transparent, #d4a853, transparent)',
-                      }}
-                      layoutId="nav-underline"
-                      transition={{
-                        type: 'spring',
-                        stiffness: 380,
-                        damping: 30,
-                      }}
-                    />
-                  )}
-                </motion.div>
-              </Link>
-            );
-          })}
-        </nav>
-
-        {/* ── Right Actions ── */}
-        <div className="flex items-center gap-2">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="text-muted-foreground hover:text-foreground"
-          >
-            <Search className="h-4 w-4" />
-          </Button>
-
+        <div className="flex items-center gap-1 shrink-0">
           {user ? (
             <DropdownMenu>
-              <DropdownMenuTrigger className="rounded-full overflow-hidden w-8 h-8 ml-2 flex items-center justify-center hover:opacity-80 transition-opacity cursor-pointer">
-                  {profile?.avatar_url ? (
-                    <img src={profile.avatar_url} alt="Avatar" className="w-full h-full object-cover" />
-                  ) : (
-                    <div className="w-full h-full bg-white/10 flex items-center justify-center text-xs rounded-full">
-                      {profile?.display_name?.charAt(0).toUpperCase() || <UserIcon className="w-4 h-4" />}
-                    </div>
-                  )}
+              <DropdownMenuTrigger className="rounded-lg overflow-hidden w-9 h-9 flex items-center justify-center hover:bg-secondary transition-colors cursor-pointer">
+                {profile?.avatar_url ? (
+                  <img
+                    src={profile.avatar_url}
+                    alt="Avatar"
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <div className="w-full h-full bg-secondary flex items-center justify-center text-xs">
+                    {profile?.display_name?.charAt(0).toUpperCase() || (
+                      <UserIcon className="w-4 h-4" />
+                    )}
+                  </div>
+                )}
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-56 glass-strong border-white/10 bg-black/80 backdrop-blur-xl">
+              <DropdownMenuContent
+                align="end"
+                className="w-56 border-border bg-popover"
+              >
                 <DropdownMenuLabel className="font-normal">
                   <div className="flex flex-col space-y-1">
-                    <p className="text-sm font-medium leading-none">{profile?.display_name || user.email}</p>
+                    <p className="text-sm font-medium leading-none">
+                      {profile?.display_name || user.email}
+                    </p>
                     <p className="text-xs leading-none text-muted-foreground">
                       @{profile?.username || 'user'}
                     </p>
                   </div>
                 </DropdownMenuLabel>
-                <DropdownMenuSeparator className="bg-white/10" />
-                <DropdownMenuItem className="hover:bg-white/10 focus:bg-white/10 cursor-pointer">
-                  <Link href={`/profile/${profile?.username || user.id}`} className="w-full">내 프로필</Link>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem className="cursor-pointer">
+                  <Link
+                    href={`/profile/${profile?.username || user.id}`}
+                    className="w-full"
+                  >
+                    내 프로필
+                  </Link>
                 </DropdownMenuItem>
-                <DropdownMenuItem className="hover:bg-white/10 focus:bg-white/10 cursor-pointer">
+                <DropdownMenuItem className="cursor-pointer">
                   설정
                 </DropdownMenuItem>
-                <DropdownMenuSeparator className="bg-white/10" />
-                <DropdownMenuItem className="text-red-400 hover:bg-white/10 focus:bg-white/10 focus:text-red-400 cursor-pointer" onClick={() => signOut()}>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  className="text-red-400 focus:text-red-400 cursor-pointer"
+                  onClick={() => signOut()}
+                >
                   로그아웃
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           ) : (
             <Link href="/login">
-              <Button variant="ghost" className="ml-2 text-sm text-[#d4a853] hover:text-[#b58c3f] hover:bg-white/5">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-sm text-[#d4a853] hover:text-[#b58c3f]"
+              >
                 로그인
               </Button>
             </Link>
           )}
 
-          {/* Mobile hamburger */}
           <Button
             variant="ghost"
             size="icon"
-            className="md:hidden text-muted-foreground hover:text-foreground ml-1"
+            className="lg:hidden text-muted-foreground"
             onClick={() => setMobileOpen(!mobileOpen)}
           >
             {mobileOpen ? (
@@ -151,24 +159,13 @@ export default function Navbar() {
         </div>
       </div>
 
-      {/* ── Bottom Gold Line ── */}
-      <div
-        className="absolute bottom-0 left-0 right-0 h-px"
-        style={{
-          background:
-            'linear-gradient(90deg, transparent 0%, #d4a853 50%, transparent 100%)',
-          opacity: 0.4,
-        }}
-      />
-
-      {/* ── Mobile Nav Overlay ── */}
       <AnimatePresence>
         {mobileOpen && (
           <motion.div
-            className="md:hidden absolute top-16 left-0 right-0 glass-strong border-t border-white/5 bg-background/95 backdrop-blur-xl"
-            initial={{ opacity: 0, y: -10 }}
+            className="lg:hidden absolute top-14 left-0 right-0 border-b border-border bg-background/98 backdrop-blur-xl"
+            initial={{ opacity: 0, y: -8 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
+            exit={{ opacity: 0, y: -8 }}
           >
             <nav className="flex flex-col py-2">
               {NAV_ITEMS.map((item) => {
@@ -176,32 +173,24 @@ export default function Navbar() {
                   item.href === '/'
                     ? pathname === '/'
                     : pathname.startsWith(item.href);
+                const Icon = item.icon;
 
                 return (
                   <Link
                     key={item.href}
                     href={item.href}
                     onClick={() => setMobileOpen(false)}
-                    className={`px-6 py-3 text-sm font-medium transition-colors ${
+                    className={`flex items-center gap-3 px-5 py-3 text-sm font-medium transition-colors ${
                       isActive
-                        ? 'text-[#d4a853]'
-                        : 'text-white/60 hover:text-white/90'
+                        ? 'text-[#d4a853] bg-secondary/50'
+                        : 'text-muted-foreground hover:text-foreground hover:bg-secondary/30'
                     }`}
                   >
+                    <Icon className="h-5 w-5" />
                     {item.label}
                   </Link>
                 );
               })}
-              
-              {!user && (
-                <Link
-                  href="/login"
-                  onClick={() => setMobileOpen(false)}
-                  className="px-6 py-3 text-sm font-medium text-[#d4a853] transition-colors"
-                >
-                  로그인
-                </Link>
-              )}
             </nav>
           </motion.div>
         )}

@@ -1,10 +1,5 @@
 'use client';
 
-/* ──────────────────────────────────────────────
-   WaveMash — 다운로드 (Download Page)
-   ────────────────────────────────────────────── */
-
-import { motion } from 'framer-motion';
 import { PlayCircle, Music2, ListMusic } from 'lucide-react';
 import DownloadForm from '@/components/DownloadForm';
 
@@ -29,78 +24,43 @@ const INFO_CARDS = [
   },
 ];
 
-const container = {
-  hidden: { opacity: 0 },
-  show: {
-    opacity: 1,
-    transition: { staggerChildren: 0.1, delayChildren: 0.3 },
-  },
-};
-
-const item = {
-  hidden: { opacity: 0, y: 20 },
-  show: { opacity: 1, y: 0 },
-};
-
 export default function DownloadPage() {
   return (
-    <div className="mx-auto max-w-4xl px-4 sm:px-6 py-12">
-      {/* ── Header ── */}
-      <motion.div
-        className="text-center mb-10"
-        initial={{ opacity: 0, y: -10 }}
-        animate={{ opacity: 1, y: 0 }}
-      >
-        <h1 className="text-3xl font-light mb-2">
-          <span className="text-gold-gradient font-bold">음악</span> 다운로드
+    <div className="py-4 space-y-4">
+      <div className="feed-card p-6 text-center">
+        <h1 className="text-2xl font-bold mb-2">
+          <span className="text-gold-gradient">음악</span> 다운로드
         </h1>
-        <p className="text-muted-foreground text-sm">
+        <p className="text-muted-foreground text-sm mb-6">
           Spotify 플리 링크를 넣으면 곡을 받아 커버·BPM·Key까지 자동으로 정리합니다
         </p>
-      </motion.div>
-
-      {/* ── Download Form ── */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.15 }}
-      >
         <DownloadForm />
-      </motion.div>
+      </div>
 
-      {/* ── Info Cards ── */}
-      <motion.div
-        className="mt-16"
-        variants={container}
-        initial="hidden"
-        animate="show"
-      >
-        <h2 className="text-lg font-medium mb-6 text-center">다운로드 방법</h2>
-
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className="feed-card p-4">
+        <h2 className="text-sm font-semibold mb-4 px-1">다운로드 방법</h2>
+        <div className="space-y-3">
           {INFO_CARDS.map((card) => (
-            <motion.div
+            <div
               key={card.title}
-              variants={item}
-              className="glass rounded-xl p-6 text-center hover-lift"
+              className="flex items-start gap-3 rounded-md p-3 hover:bg-white/[0.02] transition-colors"
             >
               <div
-                className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl"
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg"
                 style={{ backgroundColor: card.color + '15' }}
               >
-                <card.icon
-                  className="h-6 w-6"
-                  style={{ color: card.color }}
-                />
+                <card.icon className="h-5 w-5" style={{ color: card.color }} />
               </div>
-              <h3 className="text-sm font-medium mb-2">{card.title}</h3>
-              <p className="text-xs text-muted-foreground leading-relaxed">
-                {card.description}
-              </p>
-            </motion.div>
+              <div>
+                <h3 className="text-sm font-medium mb-0.5">{card.title}</h3>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  {card.description}
+                </p>
+              </div>
+            </div>
           ))}
         </div>
-      </motion.div>
+      </div>
     </div>
   );
 }

@@ -113,7 +113,7 @@ export default function FeedDashboardPage() {
     : posts;
 
   return (
-    <div className="mx-auto max-w-7xl px-3 sm:px-6 py-6 space-y-8">
+    <div className="py-4 sm:py-6 space-y-8">
       {/* ── 1. Instagram Story Highlights ── */}
       <section className="pt-1">
         <FeedStoryHighlights

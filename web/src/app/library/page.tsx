@@ -26,6 +26,7 @@ import {
 import api from '@/lib/api';
 import type { Track, ViewMode, SortField, SortOrder } from '@/lib/types';
 import TrackCard from '@/components/TrackCard';
+import TrackRow from '@/components/TrackRow';
 import Link from 'next/link';
 import { requestCoverColor } from '@/lib/coverColors';
 
@@ -42,7 +43,7 @@ function LibraryPageInner() {
   const [tracks, setTracks] = useState<Track[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<ViewMode>('grid');
+  const [viewMode, setViewMode] = useState<ViewMode>('list');
   const [search, setSearch] = useState(searchParams.get('search') || '');
   const [genre, setGenre] = useState(searchParams.get('genre') || '');
   const [sortBy, setSortBy] = useState<SortField>(
@@ -108,12 +109,13 @@ function LibraryPageInner() {
   );
 
   return (
-    <div className="mx-auto max-w-7xl px-4 sm:px-6 py-8">
+    <div className="py-4 space-y-4">
       {/* ── Header ── */}
-      <div className="flex flex-col gap-4 mb-6 sm:flex-row sm:items-center sm:justify-between">
-        <h1 className="text-2xl font-bold">라이브러리</h1>
+      <div className="feed-card p-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <h1 className="text-xl font-bold">라이브러리</h1>
 
-        <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-2 flex-wrap">
           {/* Search */}
           <div className="relative flex-1 min-w-[200px] sm:max-w-xs">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -184,17 +186,17 @@ function LibraryPageInner() {
               <List className="h-3.5 w-3.5" />
             </Button>
           </div>
+          </div>
         </div>
       </div>
 
       {/* ── Content ── */}
       {loading ? (
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
-          {[...Array(12)].map((_, i) => (
-            <Skeleton
-              key={i}
-              className="aspect-[3/4] rounded-xl skeleton-shimmer"
-            />
+        <div className="feed-card divide-y divide-border">
+          {[...Array(8)].map((_, i) => (
+            <div key={i} className="px-4 py-3">
+              <Skeleton className="h-14 rounded-md skeleton-shimmer" />
+            </div>
           ))}
         </div>
       ) : error ? (
@@ -232,7 +234,7 @@ function LibraryPageInner() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4"
+            className="feed-card p-3 grid grid-cols-2 sm:grid-cols-3 gap-3"
           >
             {tracks.map((track, i) => (
               <TrackCard key={track.track_id} track={track} index={i} />
@@ -246,61 +248,12 @@ function LibraryPageInner() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="space-y-2"
+            className="feed-card divide-y divide-border"
           >
-            {tracks.map((track, i) => (
-              <motion.div
-                key={track.track_id}
-                initial={{ opacity: 0, x: -10 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: i * 0.03 }}
-              >
-                <Link
-                  href={`/track/${track.track_id}`}
-                  className="flex items-center gap-4 glass rounded-lg p-3 hover-lift group"
-                >
-                  <div className="h-12 w-12 flex-shrink-0 overflow-hidden rounded-md">
-                    {track.has_cover ? (
-                      <img
-                        src={api.getCoverUrl(track.track_id, 96)}
-                        alt={track.title}
-                        className="h-full w-full object-cover"
-                        loading="lazy"
-                        decoding="async"
-                      />
-                    ) : (
-                      <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-[#1a1a2e] to-[#0a0a14]">
-                        <Music className="h-5 w-5 text-white/10" />
-                      </div>
-                    )}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="truncate text-sm font-medium">
-                      {track.title}
-                    </p>
-                    <p className="truncate text-xs text-muted-foreground">
-                      {track.artist}
-                    </p>
-                  </div>
-                  <div className="hidden sm:flex items-center gap-2 flex-shrink-0">
-                    {track.bpm > 0 && (
-                      <span className="badge-bpm rounded-md px-2 py-0.5 text-xs">
-                        {Math.round(track.bpm)} BPM
-                      </span>
-                    )}
-                    {track.key && (
-                      <span className="badge-key rounded-md px-2 py-0.5 text-xs">
-                        {track.key}
-                      </span>
-                    )}
-                    {track.genre && (
-                      <span className="badge-genre rounded-md px-2 py-0.5 text-xs">
-                        {track.genre}
-                      </span>
-                    )}
-                  </div>
-                </Link>
-              </motion.div>
+            {tracks.map((track) => (
+              <div key={track.track_id} className="px-3 py-2">
+                <TrackRow track={track} />
+              </div>
             ))}
           </motion.div>
         </AnimatePresence>
@@ -313,13 +266,12 @@ export default function LibraryPage() {
   return (
     <Suspense
       fallback={
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 py-8">
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
-            {[...Array(12)].map((_, i) => (
-              <Skeleton
-                key={i}
-                className="aspect-[3/4] rounded-xl skeleton-shimmer"
-              />
+        <div className="py-4">
+          <div className="feed-card divide-y divide-border">
+            {[...Array(8)].map((_, i) => (
+              <div key={i} className="px-4 py-3">
+                <Skeleton className="h-14 rounded-md skeleton-shimmer" />
+              </div>
             ))}
           </div>
         </div>
