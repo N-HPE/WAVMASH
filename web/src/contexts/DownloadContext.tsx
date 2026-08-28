@@ -26,7 +26,11 @@ interface DownloadContextValue {
   completedTracks: Track[];
   exportFormat: ExportFormat;
   setExportFormat: (f: ExportFormat) => void;
-  startDownload: (url: string, format?: ExportFormat) => Promise<void>;
+  startDownload: (
+    url: string,
+    format?: ExportFormat,
+    trackIds?: string[]
+  ) => Promise<void>;
   clear: () => void;
 }
 
@@ -60,7 +64,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const startDownload = useCallback(
-    async (url: string, format?: ExportFormat) => {
+    async (url: string, format?: ExportFormat, trackIds?: string[]) => {
       const trimmed = url.trim();
       if (!trimmed) return;
 
@@ -80,7 +84,7 @@ export function DownloadProvider({ children }: { children: ReactNode }) {
       });
 
       try {
-        const { job_id } = await api.startDownload(trimmed, fmt);
+        const { job_id } = await api.startDownload(trimmed, fmt, trackIds);
         setProgress((prev) =>
           prev
             ? {

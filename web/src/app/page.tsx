@@ -1,25 +1,31 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import {
   Disc3,
   Download,
   ArrowRight,
   Music2,
   ListMusic,
+  Search,
   Clock,
 } from 'lucide-react';
 import api from '@/lib/api';
 import type { LibraryStats, Track } from '@/lib/types';
-import DownloadForm from '@/components/DownloadForm';
 import TrackRow from '@/components/TrackRow';
+import HomeLiveChart from '@/components/HomeLiveChart';
 import { Skeleton } from '@/components/ui/skeleton';
+import { buttonVariants } from '@/components/ui/button';
 import { useDownload } from '@/contexts/DownloadContext';
+import { cn } from '@/lib/utils';
 
 export default function DashboardPage() {
+  const router = useRouter();
   const [stats, setStats] = useState<LibraryStats | null>(null);
   const [loading, setLoading] = useState(true);
+  const [query, setQuery] = useState('');
   const { completedTracks } = useDownload();
 
   const loadStats = useCallback(async () => {
@@ -43,36 +49,48 @@ export default function DashboardPage() {
     }
   }, [completedTracks, loadStats]);
 
+  const handleSearch = (e: FormEvent) => {
+    e.preventDefault();
+    const q = query.trim();
+    if (!q) return;
+    router.push(`/search?q=${encodeURIComponent(q)}`);
+  };
+
   const recentTracks: Track[] = stats?.recent_tracks ?? [];
 
   return (
     <div className="py-4 space-y-4">
-      {/* Download hero */}
+      {/* Search hero */}
       <div className="feed-card p-5 sm:p-6">
-        <div className="mb-5">
-          <h1 className="text-xl font-bold mb-1">음원 다운로드</h1>
-          <p className="text-sm text-muted-foreground">
-            Spotify 플레이리스트 · 트랙, YouTube / YouTube Music URL을 붙여넣으면
-            WAV로 보관합니다.
-          </p>
+        <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h1 className="text-xl font-bold mb-1">탐색</h1>
+            <p className="text-sm text-muted-foreground">
+              아티스트·곡을 검색하고, 실시간 차트와 내 라이브러리를 한곳에서 보세요.
+            </p>
+          </div>
+          <Link
+            href="/download"
+            className={cn(
+              buttonVariants({ size: 'sm' }),
+              'gap-1.5 shrink-0'
+            )}
+          >
+            <Download className="h-3.5 w-3.5" />
+            다운로드
+          </Link>
         </div>
 
-        <DownloadForm variant="stacked" />
-
-        <div className="mt-4 flex flex-wrap gap-2">
-          <span className="inline-flex items-center gap-1.5 rounded-md bg-secondary px-2.5 py-1 text-xs text-muted-foreground">
-            <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="#1DB954">
-              <path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02z" />
-            </svg>
-            Spotify 플리 / 트랙 / 앨범
-          </span>
-          <span className="inline-flex items-center gap-1.5 rounded-md bg-secondary px-2.5 py-1 text-xs text-muted-foreground">
-            <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="#FF0000">
-              <path d="M23.498 6.186a2.994 2.994 0 0 0-2.112-2.12C19.505 3.546 12 3.546 12 3.546s-7.505 0-9.386.52A2.994 2.994 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a2.994 2.994 0 0 0 2.112 2.12c1.881.52 9.386.52 9.386.52s7.505 0 9.386-.52a2.994 2.994 0 0 0 2.112-2.12C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z" />
-            </svg>
-            YouTube · YouTube Music
-          </span>
-        </div>
+        <form onSubmit={handleSearch} className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+          <input
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="아티스트, 곡 검색..."
+            className="w-full h-11 rounded-lg border border-border bg-secondary/40 pl-10 pr-4 text-sm outline-none placeholder:text-muted-foreground focus:border-[#d4a853]/50 focus:ring-1 focus:ring-[#d4a853]/30"
+          />
+        </form>
       </div>
 
       {/* Quick stats */}
@@ -92,12 +110,15 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* Download history */}
+      {/* Live popularity chart */}
+      <HomeLiveChart />
+
+      {/* Recent library */}
       <div className="feed-card">
         <div className="flex items-center justify-between px-4 py-3 border-b border-border">
           <div className="flex items-center gap-2">
             <Clock className="h-4 w-4 text-[#d4a853]" />
-            <h2 className="text-base font-semibold">다운로드 히스토리</h2>
+            <h2 className="text-base font-semibold">최근 라이브러리</h2>
           </div>
           <Link
             href="/library?sort_by=recent"
@@ -127,10 +148,17 @@ export default function DashboardPage() {
         ) : (
           <div className="p-10 text-center">
             <Download className="h-10 w-10 text-muted-foreground/30 mx-auto mb-3" />
-            <p className="text-sm font-medium mb-1">아직 다운로드한 트랙이 없습니다</p>
-            <p className="text-xs text-muted-foreground">
-              위에 URL을 입력해 첫 트랙을 추가하세요.
+            <p className="text-sm font-medium mb-1">아직 보관된 트랙이 없습니다</p>
+            <p className="text-xs text-muted-foreground mb-4">
+              다운로드 메뉴에서 첫 트랙을 추가하세요.
             </p>
+            <Link
+              href="/download"
+              className={cn(buttonVariants({ size: 'sm' }), 'gap-1.5 inline-flex')}
+            >
+              <Download className="h-3.5 w-3.5" />
+              다운로드로 이동
+            </Link>
           </div>
         )}
       </div>

@@ -345,7 +345,81 @@ def _match_mp3_to_song(mp3_path: str, songs_by_id: dict[str, object]) -> object 
     return None
 
 
-def process_spotify_url_sync(url, progress_callback=None, export_format: str = 'wav'):
+def resolve_spotify_preview(url: str) -> dict:
+    """Spotify URL의 곡 목록만 조회 (다운로드 없음)."""
+    url = normalize_spotify_url(url.strip())
+    if not is_spotify_url(url):
+        raise ValueError('유효한 Spotify URL이 아닙니다. (트랙 / 앨범 / 플레이리스트)')
+
+    kind = _spotify_resource_kind(url) or 'track'
+    songs = list_spotify_songs(url)
+    if not songs:
+        raise RuntimeError('Spotify에서 곡 목록을 가져오지 못했습니다.')
+
+    if kind == 'track':
+        tid = spotify_track_id(url)
+        if tid:
+            matched = [
+                s
+                for s in songs
+                if str(getattr(s, 'song_id', '') or '') == tid
+                or spotify_track_id(str(getattr(s, 'url', '') or '')) == tid
+            ]
+            songs = matched or songs[:1]
+        else:
+            songs = songs[:1]
+
+    library = load_archive()
+    tracks: list[dict] = []
+    for song in songs:
+        sid = str(getattr(song, 'song_id', '') or '')
+        artists = getattr(song, 'artists', None) or []
+        primary = str(getattr(song, 'artist', '') or '')
+        artist = display_artists('/'.join(artists) if artists else primary)
+        duration = getattr(song, 'duration', None)
+        try:
+            duration_ms = int(float(duration) * 1000) if duration else 0
+        except (TypeError, ValueError):
+            duration_ms = 0
+        cover = str(
+            getattr(song, 'cover_url', '')
+            or getattr(song, 'image_url', '')
+            or ''
+        )
+        tracks.append({
+            'id': sid,
+            'title': str(getattr(song, 'name', '') or 'Unknown'),
+            'artist': artist or 'Unknown',
+            'album': str(getattr(song, 'album_name', '') or ''),
+            'spotify_url': str(getattr(song, 'url', '') or ''),
+            'duration_ms': duration_ms,
+            'image_url': cover,
+            'in_library': bool(is_track_in_library(library, song)),
+        })
+
+    kind_label = {
+        'playlist': '플레이리스트',
+        'album': '앨범',
+        'artist': '아티스트',
+        'track': '트랙',
+    }.get(kind, kind)
+    title = f'{kind_label} · {len(tracks)}곡'
+
+    return {
+        'kind': kind,
+        'title': title,
+        'url': url,
+        'track_count': len(tracks),
+        'tracks': tracks,
+    }
+
+
+def process_spotify_url_sync(
+    url,
+    progress_callback=None,
+    export_format: str = 'wav',
+    track_ids: list[str] | None = None,
+):
     url = normalize_spotify_url(url.strip())
     if not is_spotify_url(url):
         raise ValueError('유효한 Spotify URL이 아닙니다. (트랙 / 앨범 / 플레이리스트)')
@@ -372,6 +446,19 @@ def process_spotify_url_sync(url, progress_callback=None, export_format: str = '
             all_songs = matched or all_songs[:1]
         else:
             all_songs = all_songs[:1]
+
+    if track_ids:
+        id_set = {str(t).strip() for t in track_ids if str(t).strip()}
+        if id_set:
+            filtered = [
+                s
+                for s in all_songs
+                if str(getattr(s, 'song_id', '') or '') in id_set
+                or spotify_track_id(str(getattr(s, 'url', '') or '')) in id_set
+            ]
+            if not filtered:
+                raise RuntimeError('선택한 곡을 목록에서 찾지 못했습니다.')
+            all_songs = filtered
 
     songs_by_id = {str(s.song_id): s for s in all_songs if getattr(s, 'song_id', None)}
     to_download = [s for s in all_songs if not is_track_in_library(library, s)]

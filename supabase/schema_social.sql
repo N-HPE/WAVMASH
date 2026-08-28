@@ -203,6 +203,32 @@ CREATE TABLE IF NOT EXISTS public.track_downloads (
 CREATE INDEX IF NOT EXISTS idx_track_downloads_user ON public.track_downloads(user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_track_downloads_track ON public.track_downloads(track_id);
 
+-- Spotify artist follows (user → catalog artist)
+CREATE TABLE IF NOT EXISTS public.artist_follows (
+    user_id UUID NOT NULL REFERENCES public.profiles(user_id) ON DELETE CASCADE,
+    artist_id TEXT NOT NULL,
+    artist_name TEXT NOT NULL DEFAULT '',
+    artist_image_url TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (user_id, artist_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_artist_follows_user ON public.artist_follows(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_artist_follows_artist ON public.artist_follows(artist_id);
+
+ALTER TABLE public.artist_follows ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Artist follows are viewable by everyone" ON public.artist_follows;
+CREATE POLICY "Artist follows are viewable by everyone" ON public.artist_follows
+    FOR SELECT USING (true);
+
+DROP POLICY IF EXISTS "Users can follow artists" ON public.artist_follows;
+CREATE POLICY "Users can follow artists" ON public.artist_follows
+    FOR INSERT WITH CHECK (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can unfollow artists" ON public.artist_follows;
+CREATE POLICY "Users can unfollow artists" ON public.artist_follows
+    FOR DELETE USING (auth.uid() = user_id);
 
 
 -- ═══════════════════════════════════════════════════════════════════════════

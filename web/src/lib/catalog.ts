@@ -39,3 +39,23 @@ export function formatFollowers(n?: number): string {
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
   return n.toLocaleString();
 }
+
+/** Spotify popularity(0–100) 티어 — UI는 색 뱃지만 사용 */
+export type PopularityTierTone =
+  | 'superstar'
+  | 'mainstream'
+  | 'established'
+  | 'rising'
+  | 'emerging';
+
+export function popularityTier(popularity?: number): {
+  label: string;
+  tone: PopularityTierTone;
+} {
+  const p = Math.max(0, Math.min(100, Math.round(popularity || 0)));
+  if (p >= 85) return { label: 'Superstar', tone: 'superstar' };
+  if (p >= 70) return { label: 'Mainstream', tone: 'mainstream' };
+  if (p >= 50) return { label: 'Established', tone: 'established' };
+  if (p >= 30) return { label: 'Rising', tone: 'rising' };
+  return { label: 'Emerging', tone: 'emerging' };
+}

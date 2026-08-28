@@ -2,12 +2,93 @@
 
 from __future__ import annotations
 
+import time
+from datetime import date, datetime, timedelta, timezone
 from functools import lru_cache
 from typing import Any
 
+import requests as http_requests
 from fastapi import HTTPException
 
 from spotify_metadata import _user_spotify_credentials
+
+# Spotify Charts 공개 엔드포인트 (음반 차트 등 보조)
+_SPOTIFY_PUBLIC_CHARTS_URL = (
+    "https://charts-spotify-com-service.spotify.com/public/v0/charts"
+)
+# 장르 신곡 차트는 하루 1회(날짜 키)만 갱신
+_chart_cache: dict[str, tuple[str, dict[str, Any]]] = {}
+
+_CHART_KINDS: dict[str, dict[str, str]] = {
+    "songs": {
+        "alias": "REGIONAL_GLOBAL_WEEKLY",
+        "label": "노래",
+        "name": "Global Top Songs (Weekly)",
+    },
+    "albums": {
+        "alias": "ALBUM_GLOBAL_WEEKLY",
+        "label": "음반",
+        "name": "Global Top Albums (Weekly)",
+    },
+}
+
+# 장르별 신곡 검색 쿼리 (Spotify search). genre: 필터가 빈 결과를 내는
+# 장르는 키워드+연도 검색으로 폴백합니다.
+_GENRE_CHART_DEFS: list[dict[str, Any]] = [
+    {
+        "id": "pop",
+        "label": "팝",
+        "queries": ["genre:pop year:{y0}-{y1}", "pop year:{y1}"],
+    },
+    {
+        "id": "hiphop",
+        "label": "힙합",
+        "queries": [
+            "hip hop year:{y1}",
+            "rap year:{y1}",
+            "hip hop year:{y0}",
+            "rap year:{y0}",
+        ],
+    },
+    {
+        "id": "rnb",
+        "label": "R&B",
+        "queries": [
+            "r&b year:{y1}",
+            "r&b year:{y0}",
+            "genre:soul year:{y0}-{y1}",
+        ],
+    },
+    {
+        "id": "dance",
+        "label": "댄스",
+        "queries": [
+            "genre:dance year:{y0}-{y1}",
+            "genre:electronic year:{y0}-{y1}",
+            "dance pop year:{y1}",
+        ],
+    },
+    {
+        "id": "rock",
+        "label": "록",
+        "queries": ["genre:rock year:{y0}-{y1}", "rock year:{y1}"],
+    },
+    {
+        "id": "indie",
+        "label": "인디",
+        "queries": ["genre:indie year:{y0}-{y1}", "indie year:{y1}"],
+    },
+    {
+        "id": "latin",
+        "label": "라틴",
+        "queries": ["genre:latin year:{y0}-{y1}", "latin year:{y1}"],
+    },
+    {
+        "id": "kpop",
+        "label": "K-pop",
+        "queries": ["k-pop year:{y1}", "k-pop year:{y0}", "kpop year:{y1}"],
+    },
+]
 
 
 def _spotify_client():
@@ -397,3 +478,275 @@ def get_album_tracks(album_id: str) -> dict[str, Any]:
         "album": _album_payload(album),
         "tracks": tracks_out,
     }
+
+
+def _uri_id(uri: str | None) -> str:
+    if not uri:
+        return ""
+    parts = str(uri).split(":")
+    return parts[-1] if parts else ""
+
+
+def _artist_names(artists: list[dict[str, Any]] | None) -> str:
+    if not artists:
+        return ""
+    return ", ".join(a.get("name") or "" for a in artists if a.get("name"))
+
+
+def list_chart_regions() -> list[dict[str, str]]:
+    """차트 종류 / 장르 목록."""
+    genres = [
+        {"id": g["id"], "label": g["label"], "name": g["label"]}
+        for g in _GENRE_CHART_DEFS
+    ]
+    return [
+        {"id": "genres", "label": "장르별 신곡", "name": "Genre New Tracks"},
+        *genres,
+        *[
+            {"id": key, "label": meta["label"], "name": meta["name"]}
+            for key, meta in _CHART_KINDS.items()
+        ],
+    ]
+
+
+def _parse_release_date(value: str | None) -> date | None:
+    raw = (value or "").strip()
+    if not raw:
+        return None
+    for fmt, n in (("%Y-%m-%d", 10), ("%Y-%m", 7), ("%Y", 4)):
+        try:
+            return datetime.strptime(raw[:n], fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+def _search_new_tracks_for_genre(
+    sp: Any,
+    queries: list[str],
+    *,
+    limit: int = 10,
+    lookback_days: int = 540,
+) -> list[dict[str, Any]]:
+    """장르 쿼리로 최근 발매곡을 모아 신곡 순으로 상위 N곡 반환."""
+    today = date.today()
+    y1 = today.year
+    y0 = y1 - 1
+    cutoff = today - timedelta(days=lookback_days)
+    seen: set[str] = set()
+    collected: list[tuple[date, dict[str, Any]]] = []
+    noise_titles = {"pop", "rap", "rock", "latin", "k-pop", "kpop", "r&b", "indie"}
+
+    def _consume(items: list[dict[str, Any]]) -> None:
+        for item in items:
+            tid = item.get("id") or ""
+            if not tid or tid in seen:
+                continue
+            album = item.get("album") or {}
+            released = _parse_release_date(album.get("release_date"))
+            if released is None or released < cutoff:
+                continue
+            title = (item.get("name") or "").strip()
+            if title.lower() in noise_titles:
+                continue
+            artists = item.get("artists") or []
+            primary = ((artists[0].get("name") if artists else "") or "").strip().lower()
+            dedupe_key = f"{title.lower()}|{primary}"
+            if dedupe_key in seen:
+                continue
+            seen.add(tid)
+            seen.add(dedupe_key)
+            payload = _track_payload(item)
+            payload["release_date"] = album.get("release_date") or ""
+            collected.append((released, payload))
+
+    for template in queries:
+        q = template.format(y0=y0, y1=y1)
+        for offset in (0, 10):
+            try:
+                data = sp.search(
+                    q=q, type="track", limit=10, offset=offset, market="US"
+                )
+            except Exception:
+                break
+            _consume(list((data.get("tracks") or {}).get("items") or []))
+            if len(collected) >= limit * 3:
+                break
+        if len(collected) >= limit * 3:
+            break
+
+    collected.sort(key=lambda pair: pair[0], reverse=True)
+    out: list[dict[str, Any]] = []
+    for i, (_, track) in enumerate(collected[:limit], start=1):
+        track = dict(track)
+        track["rank"] = i
+        track["item_type"] = "track"
+        out.append(track)
+    return out
+
+
+def get_genre_new_charts(per_genre: int = 10) -> dict[str, Any]:
+    """장르별 최근 신곡 Top N (하루 1회 캐시)."""
+    capped = max(1, min(int(per_genre or 10), 20))
+    today_key = date.today().isoformat()
+    cache_key = f"genres:{capped}"
+    cached = _chart_cache.get(cache_key)
+    if cached and cached[0] == today_key:
+        return cached[1]
+
+    sp = _spotify_client()
+    genres_out: list[dict[str, Any]] = []
+    for gdef in _GENRE_CHART_DEFS:
+        tracks = _search_new_tracks_for_genre(
+            sp, list(gdef["queries"]), limit=capped
+        )
+        genres_out.append(
+            {
+                "id": gdef["id"],
+                "label": gdef["label"],
+                "tracks": tracks,
+            }
+        )
+
+    result: dict[str, Any] = {
+        "region": "genres",
+        "region_label": "장르별 신곡",
+        "playlist_name": "Genre New Tracks",
+        "playlist_id": "genre-new",
+        "chart_date": today_key,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "tracks": [],
+        "genres": genres_out,
+    }
+    _chart_cache[cache_key] = (today_key, result)
+    return result
+
+
+def get_spotify_charts(region: str = "genres", limit: int = 10) -> dict[str, Any]:
+    """홈 차트. genres=장르별 신곡, albums=주간 음반."""
+    raw = (region or "genres").strip().lower()
+    if raw in {"albums", "album"}:
+        return _get_public_weekly_chart("albums", limit=min(max(limit, 1), 50))
+
+    for gdef in _GENRE_CHART_DEFS:
+        if gdef["id"] == raw:
+            full = get_genre_new_charts(per_genre=limit if limit <= 20 else 10)
+            matched = next(
+                (g for g in full["genres"] if g["id"] == raw),
+                {"id": raw, "label": gdef["label"], "tracks": []},
+            )
+            return {
+                **full,
+                "region": raw,
+                "region_label": gdef["label"],
+                "tracks": matched.get("tracks") or [],
+                "genres": [matched],
+            }
+
+    return get_genre_new_charts(per_genre=limit if limit <= 20 else 10)
+
+
+def _get_public_weekly_chart(key: str, limit: int = 50) -> dict[str, Any]:
+    """Spotify 공개 주간 글로벌 차트 (음반 등)."""
+    meta = _CHART_KINDS.get(key)
+    if not meta:
+        raise HTTPException(status_code=400, detail="지원하지 않는 차트입니다.")
+
+    capped = max(1, min(int(limit or 50), 50))
+    today_key = date.today().isoformat()
+    cache_key = f"public:{key}:{capped}"
+    cached = _chart_cache.get(cache_key)
+    if cached and cached[0] == today_key:
+        return cached[1]
+
+    try:
+        resp = http_requests.get(
+            _SPOTIFY_PUBLIC_CHARTS_URL,
+            headers={
+                "Accept": "application/json",
+                "User-Agent": "WaveMash/1.0 (charts)",
+            },
+            timeout=12,
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Spotify 차트 서버에 연결하지 못했습니다: {exc}",
+        ) from exc
+
+    if not resp.ok:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Spotify 차트를 불러오지 못했습니다 (HTTP {resp.status_code})",
+        )
+
+    try:
+        payload = resp.json()
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502, detail="Spotify 차트 응답을 파싱하지 못했습니다."
+        ) from exc
+
+    views = payload.get("chartEntryViewResponses") or []
+    view = None
+    for candidate in views:
+        display = candidate.get("displayChart") or {}
+        chart_meta = display.get("chartMetadata") or {}
+        if (chart_meta.get("alias") or "") == meta["alias"]:
+            view = candidate
+            break
+
+    if view is None:
+        raise HTTPException(
+            status_code=502, detail=f"{meta['name']} 차트를 찾지 못했습니다."
+        )
+
+    display = view.get("displayChart") or {}
+    chart_date = display.get("date") or today_key
+    entries = view.get("entries") or []
+    tracks: list[dict[str, Any]] = []
+
+    for entry in entries[:capped]:
+        chart_data = entry.get("chartEntryData") or {}
+        rank = int(chart_data.get("currentRank") or (len(tracks) + 1))
+        prev = chart_data.get("previousRank")
+        status = chart_data.get("entryStatus") or ""
+        am = entry.get("albumMetadata") or {}
+        album_id = _uri_id(am.get("albumUri"))
+        artists = am.get("artists") or []
+        artist = _artist_names(artists)
+        primary = (artists[0].get("name") if artists else "") or ""
+        tracks.append(
+            {
+                "id": album_id,
+                "title": am.get("albumName") or "",
+                "artist": artist,
+                "primary_artist": primary,
+                "album": am.get("albumName") or "",
+                "thumbnail_url": am.get("displayImageUri") or "",
+                "spotify_url": (
+                    f"https://open.spotify.com/album/{album_id}" if album_id else ""
+                ),
+                "preview_url": "",
+                "popularity": 0,
+                "duration_ms": 0,
+                "explicit": False,
+                "rank": rank,
+                "previous_rank": prev,
+                "entry_status": status,
+                "item_type": "album",
+            }
+        )
+
+    result: dict[str, Any] = {
+        "region": key,
+        "region_label": meta["label"],
+        "playlist_name": meta["name"],
+        "playlist_id": meta["alias"],
+        "chart_date": chart_date,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "tracks": tracks,
+        "genres": [],
+    }
+    _chart_cache[cache_key] = (today_key, result)
+    return result

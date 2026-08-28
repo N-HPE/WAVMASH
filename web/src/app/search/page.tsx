@@ -7,6 +7,7 @@ import { ChevronRight, Search } from 'lucide-react';
 import api from '@/lib/api';
 import type { CatalogSearchResult } from '@/lib/types';
 import CatalogTrackRow from '@/components/CatalogTrackRow';
+import FollowArtistButton from '@/components/FollowArtistButton';
 import { Skeleton } from '@/components/ui/skeleton';
 
 function SearchInner() {
@@ -94,24 +95,34 @@ function SearchInner() {
               </div>
               <div className="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1">
                 {data.artists.map((artist) => (
-                  <Link
+                  <div
                     key={artist.id}
-                    href={`/artist/${artist.id}`}
                     className="w-[140px] shrink-0 feed-card p-3 hover:bg-white/[0.03] transition-colors"
                   >
-                    <div className="h-[116px] w-[116px] mx-auto rounded-full overflow-hidden bg-secondary mb-3">
-                      {artist.image_url ? (
-                        <img
-                          src={artist.image_url}
-                          alt=""
-                          className="h-full w-full object-cover"
-                        />
-                      ) : null}
+                    <Link href={`/artist/${artist.id}`} className="block">
+                      <div className="h-[116px] w-[116px] mx-auto rounded-full overflow-hidden bg-secondary mb-3">
+                        {artist.image_url ? (
+                          <img
+                            src={artist.image_url}
+                            alt=""
+                            className="h-full w-full object-cover"
+                          />
+                        ) : null}
+                      </div>
+                      <p className="truncate text-sm font-semibold text-center">
+                        {artist.name}
+                      </p>
+                    </Link>
+                    <div className="mt-2 flex justify-center">
+                      <FollowArtistButton
+                        artistId={artist.id}
+                        artistName={artist.name}
+                        artistImageUrl={artist.image_url}
+                        size="xs"
+                        stopPropagation
+                      />
                     </div>
-                    <p className="truncate text-sm font-semibold text-center">
-                      {artist.name}
-                    </p>
-                  </Link>
+                  </div>
                 ))}
               </div>
             </section>

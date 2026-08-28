@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from server.auth import get_current_user, get_optional_user
 from server.models import (
     ActivityItem,
+    ArtistFollowActionReq,
     ChartEntry,
     HighlightCreate,
     MessageResponse,
@@ -312,6 +313,128 @@ async def get_most_collected_chart(
         return []
 
     return resp.json()
+
+
+# ---------------------------------------------------------------------------
+# 아티스트 팔로우 (Spotify catalog artists)
+# ---------------------------------------------------------------------------
+
+@router.post("/artists/{artist_id}/follow")
+async def follow_artist(
+    artist_id: str,
+    req: ArtistFollowActionReq | None = None,
+    user_id: str = Depends(get_current_user),
+):
+    """Spotify 아티스트를 팔로우합니다."""
+    if not is_supabase_enabled():
+        raise HTTPException(status_code=500, detail="Supabase가 설정되지 않았습니다.")
+
+    aid = (artist_id or "").strip()
+    if not aid:
+        raise HTTPException(status_code=400, detail="artist_id가 필요합니다.")
+
+    url = f"{_SUPABASE_URL}/rest/v1/artist_follows"
+    headers = get_headers()
+    headers["Prefer"] = "resolution=ignore-duplicates"
+
+    payload = {
+        "user_id": user_id,
+        "artist_id": aid,
+        "artist_name": (req.artist_name if req else "") or "",
+        "artist_image_url": (req.artist_image_url if req else "") or "",
+    }
+
+    resp = http_requests.post(url, headers=headers, json=payload, timeout=5)
+    if not resp.ok:
+        raise HTTPException(status_code=502, detail="아티스트 팔로우에 실패했습니다.")
+
+    return {"following": True, "artist_id": aid}
+
+
+@router.delete("/artists/{artist_id}/follow")
+async def unfollow_artist(
+    artist_id: str,
+    user_id: str = Depends(get_current_user),
+):
+    """Spotify 아티스트 팔로우를 취소합니다."""
+    if not is_supabase_enabled():
+        raise HTTPException(status_code=500, detail="Supabase가 설정되지 않았습니다.")
+
+    aid = (artist_id or "").strip()
+    if not aid:
+        raise HTTPException(status_code=400, detail="artist_id가 필요합니다.")
+
+    url = f"{_SUPABASE_URL}/rest/v1/artist_follows"
+    headers = get_headers()
+
+    resp = http_requests.delete(
+        url,
+        headers=headers,
+        params={"user_id": f"eq.{user_id}", "artist_id": f"eq.{aid}"},
+        timeout=5,
+    )
+    if not resp.ok:
+        raise HTTPException(status_code=502, detail="아티스트 언팔로우에 실패했습니다.")
+
+    return {"following": False, "artist_id": aid}
+
+
+@router.get("/artists/{artist_id}/follow")
+async def get_artist_follow_status(
+    artist_id: str,
+    user_id: str | None = Depends(get_optional_user),
+):
+    """현재 사용자의 아티스트 팔로우 여부를 조회합니다."""
+    if not user_id or not is_supabase_enabled():
+        return {"following": False, "artist_id": artist_id}
+
+    url = f"{_SUPABASE_URL}/rest/v1/artist_follows"
+    headers = get_headers()
+    resp = http_requests.get(
+        url,
+        headers=headers,
+        params={
+            "user_id": f"eq.{user_id}",
+            "artist_id": f"eq.{artist_id}",
+            "select": "artist_id",
+        },
+        timeout=5,
+    )
+    following = bool(resp.ok and resp.json())
+    return {"following": following, "artist_id": artist_id}
+
+
+@router.get("/artists/following")
+async def list_followed_artists(user_id: str = Depends(get_current_user)):
+    """현재 사용자가 팔로우 중인 아티스트 목록을 조회합니다."""
+    if not is_supabase_enabled():
+        return []
+
+    url = f"{_SUPABASE_URL}/rest/v1/artist_follows"
+    headers = get_headers()
+    resp = http_requests.get(
+        url,
+        headers=headers,
+        params={
+            "user_id": f"eq.{user_id}",
+            "order": "created_at.desc",
+            "select": "artist_id,artist_name,artist_image_url,created_at",
+        },
+        timeout=5,
+    )
+    if not resp.ok:
+        return []
+
+    rows = resp.json() or []
+    return [
+        {
+            "id": r.get("artist_id") or "",
+            "name": r.get("artist_name") or "",
+            "image_url": r.get("artist_image_url") or "",
+            "followed_at": r.get("created_at"),
+        }
+        for r in rows
+    ]
 
 
 # ---------------------------------------------------------------------------

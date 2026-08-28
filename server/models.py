@@ -125,6 +125,14 @@ class DownloadRequest(BaseModel):
     url: str = Field(..., min_length=5, description="YouTube 또는 Spotify URL")
     # Master = wav (무손실), Mobile = mp3 320k
     format: str = Field(default="wav", description="wav | mp3")
+    # Spotify 플리/앨범에서 선택한 트랙만 다운로드 (Spotify track id)
+    track_ids: list[str] | None = Field(default=None, description="선택 트랙 ID 목록")
+
+
+class DownloadResolveRequest(BaseModel):
+    """다운로드 전 곡 목록 조회."""
+
+    url: str = Field(..., min_length=5, description="Spotify URL")
 
 
 class DownloadProgress(BaseModel):
@@ -296,6 +304,10 @@ class TrackDownloadActionReq(BaseModel):
     title: str = "Unknown Title"
     artist: str = "Unknown Artist"
     cover_url: str = ""
+
+class ArtistFollowActionReq(BaseModel):
+    artist_name: str = ""
+    artist_image_url: str = ""
 
 
 

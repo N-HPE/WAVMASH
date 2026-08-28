@@ -16,12 +16,13 @@ from starlette.responses import StreamingResponse
 
 from library import is_ephemeral_mode
 from server.database import get_archive_cache
-from server.models import DownloadRequest
+from server.models import DownloadRequest, DownloadResolveRequest
 from server.services.download_service import (
     DownloadJob,
     JobStatus,
     get_download_service,
 )
+from spotify_pipeline import is_spotify_url, resolve_spotify_preview
 
 router = APIRouter(prefix="/download", tags=["다운로드"])
 
@@ -41,6 +42,31 @@ def _sanitize_archive_record(rec: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+@router.post("/resolve")
+async def resolve_download(body: DownloadResolveRequest) -> dict[str, Any]:
+    """Spotify URL의 곡 목록을 다운로드 없이 조회합니다."""
+    url = (body.url or "").strip()
+    if not url:
+        raise HTTPException(status_code=400, detail="URL을 입력해 주세요.")
+    if not is_spotify_url(url):
+        raise HTTPException(
+            status_code=400,
+            detail="Spotify 플레이리스트·앨범·트랙 URL만 목록 조회가 가능합니다.",
+        )
+
+    try:
+        return await asyncio.to_thread(resolve_spotify_preview, url)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"곡 목록을 불러오지 못했습니다: {str(exc)[:200]}",
+        ) from exc
+
+
 @router.post("", response_model=dict[str, str])
 async def start_download(body: DownloadRequest) -> dict[str, str]:
     """다운로드 작업을 시작하고 job_id를 반환합니다."""
@@ -52,8 +78,14 @@ async def start_download(body: DownloadRequest) -> dict[str, str]:
     if fmt not in ("wav", "mp3"):
         fmt = "wav"
 
+    track_ids = None
+    if body.track_ids:
+        track_ids = [str(t).strip() for t in body.track_ids if str(t).strip()]
+        if not track_ids:
+            track_ids = None
+
     service = get_download_service()
-    job = service.create_job(url, export_format=fmt)
+    job = service.create_job(url, export_format=fmt, track_ids=track_ids)
 
     return {
         "job_id": job.job_id,

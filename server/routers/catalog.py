@@ -7,6 +7,8 @@ from fastapi import APIRouter, Query
 from server.services.spotify_catalog import (
     get_album_tracks,
     get_artist_profile,
+    get_spotify_charts,
+    list_chart_regions,
     resolve_preview,
     search_catalog,
 )
@@ -17,6 +19,20 @@ router = APIRouter(prefix="/catalog", tags=["카탈로그"])
 @router.get("/search")
 async def catalog_search(q: str = Query("", min_length=1, max_length=120)):
     return search_catalog(q)
+
+
+@router.get("/charts")
+async def catalog_charts(
+    region: str = Query("genres", max_length=16),
+    limit: int = Query(10, ge=1, le=20),
+):
+    """장르별 신곡 Top N (기본). region=albums 이면 주간 음반 차트."""
+    return get_spotify_charts(region=region, limit=limit)
+
+
+@router.get("/charts/regions")
+async def catalog_chart_regions():
+    return list_chart_regions()
 
 
 @router.get("/artists/{artist_id}")

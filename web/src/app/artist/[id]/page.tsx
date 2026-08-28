@@ -8,7 +8,19 @@ import api from '@/lib/api';
 import type { CatalogArtistProfile } from '@/lib/types';
 import CatalogTrackRow from '@/components/CatalogTrackRow';
 import CatalogAlbumCard from '@/components/CatalogAlbumCard';
+import FollowArtistButton from '@/components/FollowArtistButton';
 import { Skeleton } from '@/components/ui/skeleton';
+import { formatFollowers, popularityTier, type PopularityTierTone } from '@/lib/catalog';
+import { cn } from '@/lib/utils';
+
+/** Superstar→흑, Mainstream→빨강, Established→노랑, Rising→초록, Emerging→파랑 */
+const TIER_BADGE: Record<PopularityTierTone, string> = {
+  superstar: 'bg-neutral-950 ring-1 ring-white/25',
+  mainstream: 'bg-red-500',
+  established: 'bg-yellow-400',
+  rising: 'bg-green-500',
+  emerging: 'bg-blue-500',
+};
 
 export default function ArtistPage() {
   const params = useParams();
@@ -58,6 +70,7 @@ export default function ArtistPage() {
   }
 
   const { artist, top_tracks, albums, singles } = profile;
+  const tier = popularityTier(artist.popularity);
 
   return (
     <div className="py-4 space-y-6">
@@ -69,7 +82,7 @@ export default function ArtistPage() {
           <ChevronLeft className="h-3.5 w-3.5" />
           검색
         </Link>
-        <div className="flex items-center gap-4 min-w-0">
+        <div className="flex items-start gap-4 min-w-0">
           <div className="h-20 w-20 sm:h-24 sm:w-24 rounded-full overflow-hidden bg-secondary shrink-0">
             {artist.image_url ? (
               <img
@@ -79,14 +92,34 @@ export default function ArtistPage() {
               />
             ) : null}
           </div>
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <p className="text-xs text-muted-foreground mb-0.5">아티스트</p>
             <h1 className="text-xl sm:text-2xl font-bold truncate">{artist.name}</h1>
+            <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+              <span
+                className={cn(
+                  'inline-block h-2.5 w-2.5 shrink-0 rounded-full',
+                  TIER_BADGE[tier.tone]
+                )}
+                title={tier.label}
+                aria-label={tier.label}
+              />
+              <span className="text-[11px] text-muted-foreground">
+                {formatFollowers(artist.followers)} followers
+              </span>
+            </div>
             {artist.genres.length > 0 && (
               <p className="text-xs text-muted-foreground mt-1 truncate">
                 {artist.genres.slice(0, 3).join(', ')}
               </p>
             )}
+            <div className="mt-3">
+              <FollowArtistButton
+                artistId={artist.id}
+                artistName={artist.name}
+                artistImageUrl={artist.image_url}
+              />
+            </div>
           </div>
         </div>
       </div>

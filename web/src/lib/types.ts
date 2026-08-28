@@ -80,6 +80,31 @@ export interface CatalogAlbumDetail {
   tracks: CatalogTrack[];
 }
 
+export interface CatalogChartTrack extends CatalogTrack {
+  rank: number;
+  previous_rank?: number | null;
+  entry_status?: string;
+  item_type?: 'track' | 'album';
+  release_date?: string;
+}
+
+export interface CatalogChartGenre {
+  id: string;
+  label: string;
+  tracks: CatalogChartTrack[];
+}
+
+export interface CatalogChart {
+  region: string;
+  region_label: string;
+  playlist_name: string;
+  playlist_id: string;
+  chart_date?: string;
+  updated_at: string;
+  tracks: CatalogChartTrack[];
+  genres?: CatalogChartGenre[];
+}
+
 
 
 export interface TrackUpdate {
@@ -175,6 +200,27 @@ export interface DownloadRequest {
   url: string;
   /** Master = wav, Mobile = mp3 */
   format?: "wav" | "mp3";
+  /** Spotify playlist/album에서 선택한 트랙 ID */
+  track_ids?: string[];
+}
+
+export interface DownloadResolveTrack {
+  id: string;
+  title: string;
+  artist: string;
+  album: string;
+  spotify_url: string;
+  duration_ms: number;
+  image_url: string;
+  in_library: boolean;
+}
+
+export interface DownloadResolveResult {
+  kind: string;
+  title: string;
+  url: string;
+  track_count: number;
+  tracks: DownloadResolveTrack[];
 }
 
 export interface DownloadExport {

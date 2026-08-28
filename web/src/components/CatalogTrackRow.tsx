@@ -125,9 +125,11 @@ export default function CatalogTrackRow({
 
   return (
     <div className="flex items-center gap-3 px-3 py-2 rounded-md hover:bg-white/[0.04] group min-w-0">
-      <div className="w-6 shrink-0 text-center text-xs tabular-nums text-muted-foreground">
-        {rank ?? ''}
-      </div>
+      {rank != null && (
+        <div className="w-6 shrink-0 text-center text-xs tabular-nums text-muted-foreground">
+          {rank}
+        </div>
+      )}
 
       <button
         type="button"

@@ -31,6 +31,7 @@ class DownloadJob:
     job_id: str
     url: str
     export_format: str = "wav"
+    track_ids: list[str] | None = None
     status: JobStatus = JobStatus.PENDING
     progress: float = 0.0
     message: str = ""
@@ -131,12 +132,23 @@ class DownloadService:
         self._lock = threading.Lock()
         self._semaphore = threading.Semaphore(self._MAX_CONCURRENT)
 
-    def create_job(self, url: str, export_format: str = "wav") -> DownloadJob:
+    def create_job(
+        self,
+        url: str,
+        export_format: str = "wav",
+        track_ids: list[str] | None = None,
+    ) -> DownloadJob:
         fmt = (export_format or "wav").lower().strip()
         if fmt not in ("wav", "mp3"):
             fmt = "wav"
         job_id = str(uuid.uuid4())
-        job = DownloadJob(job_id=job_id, url=url.strip(), export_format=fmt)
+        ids = [str(t).strip() for t in (track_ids or []) if str(t).strip()] or None
+        job = DownloadJob(
+            job_id=job_id,
+            url=url.strip(),
+            export_format=fmt,
+            track_ids=ids,
+        )
 
         with self._lock:
             self._cleanup_old_jobs()
@@ -205,7 +217,12 @@ class DownloadService:
             fmt = job.export_format
 
             if is_spotify_url(url):
-                result = process_spotify_url_sync(url, progress_callback, export_format=fmt)
+                result = process_spotify_url_sync(
+                    url,
+                    progress_callback,
+                    export_format=fmt,
+                    track_ids=job.track_ids,
+                )
             else:
                 result = process_url_sync(url, progress_callback, export_format=fmt)
 

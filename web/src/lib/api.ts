@@ -132,13 +132,25 @@ class WaveMashAPI {
 
   /* ── Download Endpoints ── */
 
+  async resolveDownloadUrl(url: string): Promise<import('./types').DownloadResolveResult> {
+    return this.fetch<import('./types').DownloadResolveResult>('/api/download/resolve', {
+      method: 'POST',
+      body: JSON.stringify({ url }),
+    });
+  }
+
   async startDownload(
     url: string,
-    format: 'wav' | 'mp3' = 'wav'
+    format: 'wav' | 'mp3' = 'wav',
+    trackIds?: string[]
   ): Promise<{ job_id: string; format?: string }> {
     return this.fetch<{ job_id: string; format?: string }>('/api/download', {
       method: 'POST',
-      body: JSON.stringify({ url, format }),
+      body: JSON.stringify({
+        url,
+        format,
+        ...(trackIds?.length ? { track_ids: trackIds } : {}),
+      }),
     });
   }
 
@@ -367,6 +379,15 @@ class WaveMashAPI {
   ): Promise<import('./types').CatalogAlbumDetail> {
     return this.fetch<import('./types').CatalogAlbumDetail>(
       `/api/catalog/albums/${encodeURIComponent(albumId)}`
+    );
+  }
+
+  async getSpotifyChart(
+    region: string = 'global',
+    limit: number = 50
+  ): Promise<import('./types').CatalogChart> {
+    return this.fetch<import('./types').CatalogChart>(
+      `/api/catalog/charts${this.buildQueryString({ region, limit })}`
     );
   }
 
@@ -606,6 +627,42 @@ class WaveMashAPI {
     return this.fetch<{ liked: boolean; likes_count: number; downloaded: boolean }>(
       `/api/social/tracks/${encodeURIComponent(trackId)}/status`
     );
+  }
+
+  async followArtist(
+    artistId: string,
+    meta?: { artist_name?: string; artist_image_url?: string }
+  ): Promise<{ following: boolean; artist_id: string }> {
+    return this.fetch<{ following: boolean; artist_id: string }>(
+      `/api/social/artists/${encodeURIComponent(artistId)}/follow`,
+      {
+        method: 'POST',
+        body: JSON.stringify(meta || {}),
+      }
+    );
+  }
+
+  async unfollowArtist(
+    artistId: string
+  ): Promise<{ following: boolean; artist_id: string }> {
+    return this.fetch<{ following: boolean; artist_id: string }>(
+      `/api/social/artists/${encodeURIComponent(artistId)}/follow`,
+      { method: 'DELETE' }
+    );
+  }
+
+  async getArtistFollowStatus(
+    artistId: string
+  ): Promise<{ following: boolean; artist_id: string }> {
+    return this.fetch<{ following: boolean; artist_id: string }>(
+      `/api/social/artists/${encodeURIComponent(artistId)}/follow`
+    );
+  }
+
+  async listFollowedArtists(): Promise<
+    Array<{ id: string; name: string; image_url: string; followed_at?: string }>
+  > {
+    return this.fetch(`/api/social/artists/following`);
   }
 
   async getActivityFeed(): Promise<any[]> {

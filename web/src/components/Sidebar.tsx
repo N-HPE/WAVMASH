@@ -8,12 +8,14 @@ import {
   ListMusic,
   User as UserIcon,
   Compass,
+  Download,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 
 const NAV_ITEMS = [
   { label: '홈', href: '/', icon: Home },
   { label: '검색', href: '/search', icon: Compass },
+  { label: '다운로드', href: '/download', icon: Download },
   { label: '라이브러리', href: '/library', icon: Library },
   { label: '플레이리스트', href: '/playlists', icon: ListMusic },
 ] as const;
