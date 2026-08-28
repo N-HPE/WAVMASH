@@ -9,7 +9,7 @@ from pathlib import Path
 
 from mutagen.id3 import ID3
 
-from desktop_app.archive_store import load_archive
+from desktop_app.archive_store import load_archive, upsert_record
 from library import SINGLES_ALBUM, UNKNOWN, display_artists, normalize_artist_meta, sanitize_path_part
 from env_loader import ensure_env_loaded
 from spotify_metadata import (
@@ -600,20 +600,14 @@ def process_spotify_url_sync(url, progress_callback=None, export_format: str = '
 
     # 아카이브에 즉시 반영 (동기화/재매핑이 캐시를 볼 수 있도록)
     try:
-        from desktop_app.archive_store import load_archive, upsert_record
-
         lib = load_archive()
         for rec in records:
             lib = upsert_record(lib, rec, prepend=True)
     except Exception as exc:
         print(f'[spotify_pipeline] archive upsert: {exc}')
 
-    # 아직 라이브러리에 없는 Spotify 곡 ID
-    refreshed = load_archive() if 'load_archive' in dir() else library
     try:
-        from desktop_app.archive_store import load_archive as _load
-
-        refreshed = _load()
+        refreshed = load_archive()
     except Exception:
         refreshed = library
     missing_ids: list[str] = []

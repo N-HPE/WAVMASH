@@ -102,7 +102,7 @@ export default function AlbumPage() {
               size="sm"
               variant="outline"
               disabled={active || !downloadUrl}
-              className="mt-3 h-8 gap-1.5 text-xs"
+              className="mt-3 h-8 w-8 p-0"
               onClick={() => downloadUrl && void startDownload(downloadUrl)}
             >
               {isThis ? (
@@ -110,7 +110,6 @@ export default function AlbumPage() {
               ) : (
                 <Download className="h-3.5 w-3.5" />
               )}
-              전체 WAV
             </Button>
           </div>
         </div>

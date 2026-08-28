@@ -59,7 +59,7 @@ export default function CatalogAlbumCard({ album, href }: CatalogAlbumCardProps)
         size="sm"
         variant="outline"
         disabled={active || !url}
-        className="mt-1.5 w-full h-7 gap-1 text-[11px]"
+        className="mt-1.5 w-full h-7 p-0"
         onClick={(e) => {
           e.preventDefault();
           e.stopPropagation();
@@ -71,7 +71,6 @@ export default function CatalogAlbumCard({ album, href }: CatalogAlbumCardProps)
         ) : (
           <Download className="h-3 w-3" />
         )}
-        WAV
       </Button>
     </div>
   );

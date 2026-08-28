@@ -171,7 +171,7 @@ export default function CatalogTrackRow({
         size="sm"
         variant="outline"
         disabled={active || !downloadUrl}
-        className="shrink-0 h-8 gap-1.5 text-xs"
+        className="shrink-0 h-8 w-8 p-0"
         onClick={handleDownload}
       >
         {isThisDownloading ? (
@@ -179,7 +179,6 @@ export default function CatalogTrackRow({
         ) : (
           <Download className="h-3.5 w-3.5" />
         )}
-        <span className="hidden sm:inline">WAV</span>
       </Button>
     </div>
   );
