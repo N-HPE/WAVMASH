@@ -45,7 +45,7 @@ _CHART_KINDS: dict[str, dict[str, str]] = {
     },
 }
 
-# 대분류 → 세부장르. 각 leaf는 Spotify search 쿼리로 신곡 차트를 만든다.
+# 대분류 → 세부장르. 언어/지역 장르(K-pop, 라틴 등)는 실제 장르의 세부로 배치.
 # genre: 필터가 빈 결과를 내는 장르는 키워드+연도 검색으로 폴백.
 _GENRE_GROUPS: list[dict[str, Any]] = [
     {
@@ -66,6 +66,16 @@ _GENRE_GROUPS: list[dict[str, Any]] = [
                 "id": "pop-synth",
                 "label": "신스팝",
                 "queries": ["synth-pop year:{y1}", "electropop year:{y1}"],
+            },
+            {
+                "id": "pop-kpop",
+                "label": "K-pop",
+                "queries": ["k-pop year:{y1}", "kpop year:{y1}"],
+            },
+            {
+                "id": "pop-latin",
+                "label": "라틴팝",
+                "queries": ["latin pop year:{y1}", "genre:latin year:{y1}"],
             },
         ],
     },
@@ -88,6 +98,16 @@ _GENRE_GROUPS: list[dict[str, Any]] = [
                 "label": "드릴",
                 "queries": ["drill year:{y1}", "uk drill year:{y1}"],
             },
+            {
+                "id": "hiphop-k",
+                "label": "K-힙합",
+                "queries": ["k-hip hop year:{y1}", "korean hip hop year:{y1}"],
+            },
+            {
+                "id": "hiphop-reggaeton",
+                "label": "레게톤",
+                "queries": ["reggaeton year:{y1}", "genre:reggaeton year:{y1}"],
+            },
         ],
     },
     {
@@ -108,6 +128,11 @@ _GENRE_GROUPS: list[dict[str, Any]] = [
                 "id": "rnb-alt",
                 "label": "얼터 R&B",
                 "queries": ["alternative r&b year:{y1}", "alt r&b year:{y1}"],
+            },
+            {
+                "id": "rnb-k",
+                "label": "K-R&B",
+                "queries": ["korean r&b year:{y1}", "k-r&b year:{y1}"],
             },
         ],
     },
@@ -145,6 +170,11 @@ _GENRE_GROUPS: list[dict[str, Any]] = [
                 "label": "덥스텝",
                 "queries": ["dubstep year:{y1}", "genre:dubstep year:{y1}"],
             },
+            {
+                "id": "dance-salsa",
+                "label": "살사",
+                "queries": ["salsa year:{y1}", "genre:salsa year:{y1}"],
+            },
         ],
     },
     {
@@ -165,48 +195,6 @@ _GENRE_GROUPS: list[dict[str, Any]] = [
                 "id": "indie-rock",
                 "label": "인디록",
                 "queries": ["indie rock year:{y1}", "genre:indie rock year:{y1}"],
-            },
-        ],
-    },
-    {
-        "id": "latin",
-        "label": "라틴",
-        "subgenres": [
-            {
-                "id": "latin",
-                "label": "전체",
-                "queries": ["genre:latin year:{y1}", "latin year:{y1}"],
-            },
-            {
-                "id": "latin-reggaeton",
-                "label": "레게톤",
-                "queries": ["reggaeton year:{y1}", "genre:reggaeton year:{y1}"],
-            },
-            {
-                "id": "latin-salsa",
-                "label": "살사",
-                "queries": ["salsa year:{y1}", "genre:salsa year:{y1}"],
-            },
-        ],
-    },
-    {
-        "id": "kpop",
-        "label": "K-pop",
-        "subgenres": [
-            {
-                "id": "kpop",
-                "label": "전체",
-                "queries": ["k-pop year:{y1}", "kpop year:{y1}"],
-            },
-            {
-                "id": "kpop-hiphop",
-                "label": "K-힙합",
-                "queries": ["k-hip hop year:{y1}", "korean hip hop year:{y1}"],
-            },
-            {
-                "id": "kpop-rnb",
-                "label": "K-R&B",
-                "queries": ["korean r&b year:{y1}", "k-r&b year:{y1}"],
             },
         ],
     },
@@ -870,7 +858,7 @@ def get_single_genre_chart(genre_id: str, limit: int = 10) -> dict[str, Any]:
 
     capped = max(1, min(int(limit or 10), 20))
     today_key = date.today().isoformat()
-    cache_key = f"genre-v7:{gdef['id']}:{capped}"
+    cache_key = f"genre-v8:{gdef['id']}:{capped}"
     cached = _cache_get(cache_key)
     if cached:
         # 빈 차트는 캐시 히트로 고착시키지 않음
@@ -892,7 +880,7 @@ def get_genre_new_charts(per_genre: int = 10) -> dict[str, Any]:
     """대분류별 '전체' 차트만 병렬 조회 (세부는 탭에서 개별 로드)."""
     capped = max(1, min(int(per_genre or 10), 20))
     today_key = date.today().isoformat()
-    cache_key = f"genres-v7:{capped}"
+    cache_key = f"genres-v8:{capped}"
     cached = _cache_get(cache_key)
     if cached:
         genres = cached.get("genres") or []

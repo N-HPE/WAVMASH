@@ -8,39 +8,63 @@ import CatalogTrackRow from '@/components/CatalogTrackRow';
 import { Skeleton } from '@/components/ui/skeleton';
 
 type SubGenre = { id: string; label: string };
-type GenreGroup = { id: string; label: string; subgenres: SubGenre[] };
+type GenreGroup = {
+  id: string;
+  label: string;
+  color: string;
+  colorMuted: string;
+  textOnActive: string;
+  subgenres: SubGenre[];
+};
 
 const GENRE_GROUPS: GenreGroup[] = [
   {
     id: 'pop',
     label: '팝',
+    color: '#eab308',
+    colorMuted: 'rgba(234, 179, 8, 0.18)',
+    textOnActive: '#111',
     subgenres: [
       { id: 'pop', label: '전체' },
       { id: 'pop-dance', label: '댄스팝' },
       { id: 'pop-synth', label: '신스팝' },
+      { id: 'pop-kpop', label: 'K-pop' },
+      { id: 'pop-latin', label: '라틴팝' },
     ],
   },
   {
     id: 'hiphop',
     label: '힙합',
+    color: '#f97316',
+    colorMuted: 'rgba(249, 115, 22, 0.18)',
+    textOnActive: '#111',
     subgenres: [
       { id: 'hiphop', label: '전체' },
       { id: 'hiphop-trap', label: '트랩' },
       { id: 'hiphop-drill', label: '드릴' },
+      { id: 'hiphop-k', label: 'K-힙합' },
+      { id: 'hiphop-reggaeton', label: '레게톤' },
     ],
   },
   {
     id: 'rnb',
     label: 'R&B',
+    color: '#ef4444',
+    colorMuted: 'rgba(239, 68, 68, 0.18)',
+    textOnActive: '#fff',
     subgenres: [
       { id: 'rnb', label: '전체' },
       { id: 'rnb-neo', label: '네오소울' },
       { id: 'rnb-alt', label: '얼터 R&B' },
+      { id: 'rnb-k', label: 'K-R&B' },
     ],
   },
   {
     id: 'dance',
     label: '댄스',
+    color: '#3b82f6',
+    colorMuted: 'rgba(59, 130, 246, 0.18)',
+    textOnActive: '#fff',
     subgenres: [
       { id: 'dance', label: '전체' },
       { id: 'dance-house', label: '하우스' },
@@ -48,33 +72,19 @@ const GENRE_GROUPS: GenreGroup[] = [
       { id: 'dance-trance', label: '트랜스' },
       { id: 'dance-dnb', label: '드럼앤베이스' },
       { id: 'dance-dubstep', label: '덥스텝' },
+      { id: 'dance-salsa', label: '살사' },
     ],
   },
   {
     id: 'indie',
     label: '인디',
+    color: '#22c55e',
+    colorMuted: 'rgba(34, 197, 94, 0.18)',
+    textOnActive: '#111',
     subgenres: [
       { id: 'indie', label: '전체' },
       { id: 'indie-pop', label: '인디팝' },
       { id: 'indie-rock', label: '인디록' },
-    ],
-  },
-  {
-    id: 'latin',
-    label: '라틴',
-    subgenres: [
-      { id: 'latin', label: '전체' },
-      { id: 'latin-reggaeton', label: '레게톤' },
-      { id: 'latin-salsa', label: '살사' },
-    ],
-  },
-  {
-    id: 'kpop',
-    label: 'K-pop',
-    subgenres: [
-      { id: 'kpop', label: '전체' },
-      { id: 'kpop-hiphop', label: 'K-힙합' },
-      { id: 'kpop-rnb', label: 'K-R&B' },
     ],
   },
 ];
@@ -160,7 +170,6 @@ export default function HomeLiveChart() {
     void loadGenre(subId);
   }, [subId, loadGenre]);
 
-  // 현재 대분류의 세부장르 + 다른 대분류 '전체'를 백그라운드 prefetch
   useEffect(() => {
     if (prefetchStarted.current) return;
     if (!tracksByGenre[subId]?.length) return;
@@ -179,7 +188,6 @@ export default function HomeLiveChart() {
     })();
   }, [tracksByGenre, subId, loadGenre, activeGroup]);
 
-  // 대분류 전환 시 해당 세부장르 prefetch
   useEffect(() => {
     const ids = activeGroup.subgenres.map((s) => s.id);
     void (async () => {
@@ -197,20 +205,28 @@ export default function HomeLiveChart() {
     <section className="feed-card overflow-hidden">
       <div className="flex flex-wrap items-center justify-between gap-2 px-3 pt-3 pb-1">
         <div className="flex gap-1.5 overflow-x-auto min-w-0 flex-1">
-          {GENRE_GROUPS.map((g) => (
-            <button
-              key={g.id}
-              type="button"
-              onClick={() => selectGroup(g.id)}
-              className={`shrink-0 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
-                groupId === g.id
-                  ? 'bg-[#d4a853] text-black'
-                  : 'bg-secondary/80 text-muted-foreground hover:bg-white/10 hover:text-foreground'
-              }`}
-            >
-              {g.label}
-            </button>
-          ))}
+          {GENRE_GROUPS.map((g) => {
+            const active = groupId === g.id;
+            return (
+              <button
+                key={g.id}
+                type="button"
+                onClick={() => selectGroup(g.id)}
+                className={`shrink-0 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+                  active
+                    ? ''
+                    : 'bg-secondary/80 text-muted-foreground hover:bg-white/10 hover:text-foreground'
+                }`}
+                style={
+                  active
+                    ? { backgroundColor: g.color, color: g.textOnActive }
+                    : undefined
+                }
+              >
+                {g.label}
+              </button>
+            );
+          })}
         </div>
         <span className="text-[11px] text-muted-foreground tabular-nums shrink-0 px-1">
           {chartDate}
@@ -219,20 +235,28 @@ export default function HomeLiveChart() {
 
       {activeGroup.subgenres.length > 1 && (
         <div className="flex gap-1 overflow-x-auto px-3 pb-2 pt-0.5">
-          {activeGroup.subgenres.map((s) => (
-            <button
-              key={s.id}
-              type="button"
-              onClick={() => setSubId(s.id)}
-              className={`shrink-0 rounded px-2.5 py-1 text-[11px] font-medium transition-colors ${
-                subId === s.id
-                  ? 'bg-white/15 text-foreground'
-                  : 'text-muted-foreground hover:bg-white/5 hover:text-foreground'
-              }`}
-            >
-              {s.label}
-            </button>
-          ))}
+          {activeGroup.subgenres.map((s) => {
+            const active = subId === s.id;
+            return (
+              <button
+                key={s.id}
+                type="button"
+                onClick={() => setSubId(s.id)}
+                className={`shrink-0 rounded px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                  active
+                    ? 'text-foreground'
+                    : 'text-muted-foreground hover:bg-white/5 hover:text-foreground'
+                }`}
+                style={
+                  active
+                    ? { backgroundColor: activeGroup.colorMuted }
+                    : undefined
+                }
+              >
+                {s.label}
+              </button>
+            );
+          })}
         </div>
       )}
 
@@ -256,9 +280,12 @@ export default function HomeLiveChart() {
             <li key={`${subId}-${track.id}`} className="flex items-stretch">
               <div className="w-9 shrink-0 flex items-center justify-center pl-2">
                 <span
-                  className={`text-xs font-bold tabular-nums ${
-                    track.rank <= 3 ? 'text-[#d4a853]' : 'text-muted-foreground'
-                  }`}
+                  className="text-xs font-bold tabular-nums text-muted-foreground"
+                  style={
+                    track.rank <= 3
+                      ? { color: activeGroup.color }
+                      : undefined
+                  }
                 >
                   {track.rank}
                 </span>
