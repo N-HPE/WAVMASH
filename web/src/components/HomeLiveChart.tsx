@@ -1,20 +1,82 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { TrendingUp } from 'lucide-react';
 import api from '@/lib/api';
 import type { CatalogChartGenre, CatalogChartTrack } from '@/lib/types';
 import CatalogTrackRow from '@/components/CatalogTrackRow';
 import { Skeleton } from '@/components/ui/skeleton';
 
-const GENRE_TABS: Array<{ id: string; label: string }> = [
-  { id: 'pop', label: '팝' },
-  { id: 'hiphop', label: '힙합' },
-  { id: 'rnb', label: 'R&B' },
-  { id: 'dance', label: 'Beatport' },
-  { id: 'indie', label: '인디' },
-  { id: 'latin', label: '라틴' },
-  { id: 'kpop', label: 'K-pop' },
+type SubGenre = { id: string; label: string };
+type GenreGroup = { id: string; label: string; subgenres: SubGenre[] };
+
+const GENRE_GROUPS: GenreGroup[] = [
+  {
+    id: 'pop',
+    label: '팝',
+    subgenres: [
+      { id: 'pop', label: '전체' },
+      { id: 'pop-dance', label: '댄스팝' },
+      { id: 'pop-synth', label: '신스팝' },
+    ],
+  },
+  {
+    id: 'hiphop',
+    label: '힙합',
+    subgenres: [
+      { id: 'hiphop', label: '전체' },
+      { id: 'hiphop-trap', label: '트랩' },
+      { id: 'hiphop-drill', label: '드릴' },
+    ],
+  },
+  {
+    id: 'rnb',
+    label: 'R&B',
+    subgenres: [
+      { id: 'rnb', label: '전체' },
+      { id: 'rnb-neo', label: '네오소울' },
+      { id: 'rnb-alt', label: '얼터 R&B' },
+    ],
+  },
+  {
+    id: 'dance',
+    label: '댄스',
+    subgenres: [
+      { id: 'dance', label: '전체' },
+      { id: 'dance-house', label: '하우스' },
+      { id: 'dance-techno', label: '테크노' },
+      { id: 'dance-trance', label: '트랜스' },
+      { id: 'dance-dnb', label: '드럼앤베이스' },
+      { id: 'dance-dubstep', label: '덥스텝' },
+    ],
+  },
+  {
+    id: 'indie',
+    label: '인디',
+    subgenres: [
+      { id: 'indie', label: '전체' },
+      { id: 'indie-pop', label: '인디팝' },
+      { id: 'indie-rock', label: '인디록' },
+    ],
+  },
+  {
+    id: 'latin',
+    label: '라틴',
+    subgenres: [
+      { id: 'latin', label: '전체' },
+      { id: 'latin-reggaeton', label: '레게톤' },
+      { id: 'latin-salsa', label: '살사' },
+    ],
+  },
+  {
+    id: 'kpop',
+    label: 'K-pop',
+    subgenres: [
+      { id: 'kpop', label: '전체' },
+      { id: 'kpop-hiphop', label: 'K-힙합' },
+      { id: 'kpop-rnb', label: 'K-R&B' },
+    ],
+  },
 ];
 
 function formatToday(): string {
@@ -30,7 +92,8 @@ function formatToday(): string {
 }
 
 export default function HomeLiveChart() {
-  const [genreId, setGenreId] = useState('pop');
+  const [groupId, setGroupId] = useState('pop');
+  const [subId, setSubId] = useState('pop');
   const [tracksByGenre, setTracksByGenre] = useState<
     Record<string, CatalogChartTrack[]>
   >({});
@@ -39,6 +102,18 @@ export default function HomeLiveChart() {
   const [error, setError] = useState<string | null>(null);
   const cacheRef = useRef<Record<string, CatalogChartTrack[]>>({});
   const prefetchStarted = useRef(false);
+
+  const activeGroup = useMemo(
+    () => GENRE_GROUPS.find((g) => g.id === groupId) || GENRE_GROUPS[0],
+    [groupId]
+  );
+
+  const selectGroup = useCallback((id: string) => {
+    const group = GENRE_GROUPS.find((g) => g.id === id);
+    if (!group) return;
+    setGroupId(id);
+    setSubId(group.subgenres[0]?.id || id);
+  }, []);
 
   const loadGenre = useCallback(async (id: string, silent = false) => {
     if (cacheRef.current[id]?.length) {
@@ -82,36 +157,53 @@ export default function HomeLiveChart() {
   }, []);
 
   useEffect(() => {
-    void loadGenre(genreId);
-  }, [genreId, loadGenre]);
+    void loadGenre(subId);
+  }, [subId, loadGenre]);
 
-  // 첫 장르 뜬 뒤 나머지 장르 백그라운드 prefetch (탭 전환 즉시)
+  // 현재 대분류의 세부장르 + 다른 대분류 '전체'를 백그라운드 prefetch
   useEffect(() => {
     if (prefetchStarted.current) return;
-    if (!tracksByGenre[genreId]?.length) return;
+    if (!tracksByGenre[subId]?.length) return;
     prefetchStarted.current = true;
-    const others = GENRE_TABS.map((g) => g.id).filter((id) => id !== genreId);
+    const primaryIds = GENRE_GROUPS.map((g) => g.subgenres[0]?.id).filter(
+      Boolean
+    ) as string[];
+    const siblingIds = activeGroup.subgenres.map((s) => s.id);
+    const queue = [...new Set([...siblingIds, ...primaryIds])].filter(
+      (id) => id !== subId
+    );
     void (async () => {
-      for (const id of others) {
+      for (const id of queue) {
         await loadGenre(id, true);
       }
     })();
-  }, [tracksByGenre, genreId, loadGenre]);
+  }, [tracksByGenre, subId, loadGenre, activeGroup]);
 
-  const tracks = tracksByGenre[genreId] || [];
+  // 대분류 전환 시 해당 세부장르 prefetch
+  useEffect(() => {
+    const ids = activeGroup.subgenres.map((s) => s.id);
+    void (async () => {
+      for (const id of ids) {
+        if (cacheRef.current[id]?.length) continue;
+        await loadGenre(id, true);
+      }
+    })();
+  }, [activeGroup, loadGenre]);
+
+  const tracks = tracksByGenre[subId] || [];
   const showSkeleton = loading && tracks.length === 0;
 
   return (
     <section className="feed-card overflow-hidden">
       <div className="flex flex-wrap items-center justify-between gap-2 px-3 pt-3 pb-1">
         <div className="flex gap-1.5 overflow-x-auto min-w-0 flex-1">
-          {GENRE_TABS.map((g) => (
+          {GENRE_GROUPS.map((g) => (
             <button
               key={g.id}
               type="button"
-              onClick={() => setGenreId(g.id)}
+              onClick={() => selectGroup(g.id)}
               className={`shrink-0 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
-                genreId === g.id
+                groupId === g.id
                   ? 'bg-[#d4a853] text-black'
                   : 'bg-secondary/80 text-muted-foreground hover:bg-white/10 hover:text-foreground'
               }`}
@@ -124,6 +216,25 @@ export default function HomeLiveChart() {
           {chartDate}
         </span>
       </div>
+
+      {activeGroup.subgenres.length > 1 && (
+        <div className="flex gap-1 overflow-x-auto px-3 pb-2 pt-0.5">
+          {activeGroup.subgenres.map((s) => (
+            <button
+              key={s.id}
+              type="button"
+              onClick={() => setSubId(s.id)}
+              className={`shrink-0 rounded px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                subId === s.id
+                  ? 'bg-white/15 text-foreground'
+                  : 'text-muted-foreground hover:bg-white/5 hover:text-foreground'
+              }`}
+            >
+              {s.label}
+            </button>
+          ))}
+        </div>
+      )}
 
       {showSkeleton ? (
         <div className="divide-y divide-border px-1 py-2">
@@ -142,7 +253,7 @@ export default function HomeLiveChart() {
       ) : tracks.length > 0 ? (
         <ol className="divide-y divide-border">
           {tracks.map((track) => (
-            <li key={`${genreId}-${track.id}`} className="flex items-stretch">
+            <li key={`${subId}-${track.id}`} className="flex items-stretch">
               <div className="w-9 shrink-0 flex items-center justify-center pl-2">
                 <span
                   className={`text-xs font-bold tabular-nums ${

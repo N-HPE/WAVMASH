@@ -92,18 +92,28 @@ export interface CatalogChartTrack extends CatalogTrack {
 export interface CatalogChartGenre {
   id: string;
   label: string;
+  group_id?: string;
   tracks: CatalogChartTrack[];
+}
+
+export interface CatalogChartGroup {
+  id: string;
+  label: string;
+  subgenres: Array<{ id: string; label: string }>;
 }
 
 export interface CatalogChart {
   region: string;
   region_label: string;
+  group_id?: string;
+  group_label?: string;
   playlist_name: string;
   playlist_id: string;
   chart_date?: string;
   updated_at: string;
   tracks: CatalogChartTrack[];
   genres?: CatalogChartGenre[];
+  groups?: CatalogChartGroup[];
 }
 
 

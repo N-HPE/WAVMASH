@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import re
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timedelta, timezone
@@ -19,10 +18,6 @@ from fastapi import HTTPException
 from spotify_metadata import _user_spotify_credentials
 
 logger = logging.getLogger("wavemash.catalog")
-
-# Beatport Top 100 페이지 (Cloudflare → curl_cffi). 실패 시 Spotify 미러 플리.
-_BEATPORT_TOP100_URL = "https://www.beatport.com/top-100"
-_BEATPORT_SPOTIFY_FALLBACK_PLAYLIST = "4W7jnrqeKfVEnb1BVHMG5b"
 
 # Spotify Charts 공개 엔드포인트 (음반 차트 등 보조)
 _SPOTIFY_PUBLIC_CHARTS_URL = (
@@ -50,46 +45,190 @@ _CHART_KINDS: dict[str, dict[str, str]] = {
     },
 }
 
-# 장르별 신곡 검색 쿼리 (Spotify search). genre: 필터가 빈 결과를 내는
-# 장르는 키워드+연도 검색으로 폴백합니다.
-_GENRE_CHART_DEFS: list[dict[str, Any]] = [
+# 대분류 → 세부장르. 각 leaf는 Spotify search 쿼리로 신곡 차트를 만든다.
+# genre: 필터가 빈 결과를 내는 장르는 키워드+연도 검색으로 폴백.
+_GENRE_GROUPS: list[dict[str, Any]] = [
     {
         "id": "pop",
         "label": "팝",
-        "queries": ["genre:pop year:{y1}", "pop year:{y1}"],
+        "subgenres": [
+            {
+                "id": "pop",
+                "label": "전체",
+                "queries": ["genre:pop year:{y1}", "pop year:{y1}"],
+            },
+            {
+                "id": "pop-dance",
+                "label": "댄스팝",
+                "queries": ["dance pop year:{y1}", "genre:dance pop year:{y1}"],
+            },
+            {
+                "id": "pop-synth",
+                "label": "신스팝",
+                "queries": ["synth-pop year:{y1}", "electropop year:{y1}"],
+            },
+        ],
     },
     {
         "id": "hiphop",
         "label": "힙합",
-        "queries": ["hip hop year:{y1}", "rap year:{y1}"],
+        "subgenres": [
+            {
+                "id": "hiphop",
+                "label": "전체",
+                "queries": ["hip hop year:{y1}", "rap year:{y1}"],
+            },
+            {
+                "id": "hiphop-trap",
+                "label": "트랩",
+                "queries": ["trap year:{y1}", "genre:trap year:{y1}"],
+            },
+            {
+                "id": "hiphop-drill",
+                "label": "드릴",
+                "queries": ["drill year:{y1}", "uk drill year:{y1}"],
+            },
+        ],
     },
     {
         "id": "rnb",
         "label": "R&B",
-        "queries": ["r&b year:{y1}", "genre:soul year:{y1}"],
+        "subgenres": [
+            {
+                "id": "rnb",
+                "label": "전체",
+                "queries": ["r&b year:{y1}", "genre:soul year:{y1}"],
+            },
+            {
+                "id": "rnb-neo",
+                "label": "네오소울",
+                "queries": ["neo soul year:{y1}", "genre:neo soul year:{y1}"],
+            },
+            {
+                "id": "rnb-alt",
+                "label": "얼터 R&B",
+                "queries": ["alternative r&b year:{y1}", "alt r&b year:{y1}"],
+            },
+        ],
     },
     {
         "id": "dance",
-        "label": "Beatport",
-        "source": "beatport",
-        "queries": [],
+        "label": "댄스",
+        "subgenres": [
+            {
+                "id": "dance",
+                "label": "전체",
+                "queries": ["edm year:{y1}", "electronic year:{y1}"],
+            },
+            {
+                "id": "dance-house",
+                "label": "하우스",
+                "queries": ["house year:{y1}", "deep house year:{y1}"],
+            },
+            {
+                "id": "dance-techno",
+                "label": "테크노",
+                "queries": ["techno year:{y1}", "genre:techno year:{y1}"],
+            },
+            {
+                "id": "dance-trance",
+                "label": "트랜스",
+                "queries": ["trance year:{y1}", "genre:trance year:{y1}"],
+            },
+            {
+                "id": "dance-dnb",
+                "label": "드럼앤베이스",
+                "queries": ["drum and bass year:{y1}", "dnb year:{y1}"],
+            },
+            {
+                "id": "dance-dubstep",
+                "label": "덥스텝",
+                "queries": ["dubstep year:{y1}", "genre:dubstep year:{y1}"],
+            },
+        ],
     },
     {
         "id": "indie",
         "label": "인디",
-        "queries": ["genre:indie year:{y1}", "indie year:{y1}"],
+        "subgenres": [
+            {
+                "id": "indie",
+                "label": "전체",
+                "queries": ["genre:indie year:{y1}", "indie year:{y1}"],
+            },
+            {
+                "id": "indie-pop",
+                "label": "인디팝",
+                "queries": ["indie pop year:{y1}", "genre:indie pop year:{y1}"],
+            },
+            {
+                "id": "indie-rock",
+                "label": "인디록",
+                "queries": ["indie rock year:{y1}", "genre:indie rock year:{y1}"],
+            },
+        ],
     },
     {
         "id": "latin",
         "label": "라틴",
-        "queries": ["genre:latin year:{y1}", "latin year:{y1}"],
+        "subgenres": [
+            {
+                "id": "latin",
+                "label": "전체",
+                "queries": ["genre:latin year:{y1}", "latin year:{y1}"],
+            },
+            {
+                "id": "latin-reggaeton",
+                "label": "레게톤",
+                "queries": ["reggaeton year:{y1}", "genre:reggaeton year:{y1}"],
+            },
+            {
+                "id": "latin-salsa",
+                "label": "살사",
+                "queries": ["salsa year:{y1}", "genre:salsa year:{y1}"],
+            },
+        ],
     },
     {
         "id": "kpop",
         "label": "K-pop",
-        "queries": ["k-pop year:{y1}", "kpop year:{y1}"],
+        "subgenres": [
+            {
+                "id": "kpop",
+                "label": "전체",
+                "queries": ["k-pop year:{y1}", "kpop year:{y1}"],
+            },
+            {
+                "id": "kpop-hiphop",
+                "label": "K-힙합",
+                "queries": ["k-hip hop year:{y1}", "korean hip hop year:{y1}"],
+            },
+            {
+                "id": "kpop-rnb",
+                "label": "K-R&B",
+                "queries": ["korean r&b year:{y1}", "k-r&b year:{y1}"],
+            },
+        ],
     },
 ]
+
+
+def _flatten_genre_defs() -> list[dict[str, Any]]:
+    """세부장르 leaf 목록 (조회·캐시용). group_id / group_label 포함."""
+    out: list[dict[str, Any]] = []
+    for group in _GENRE_GROUPS:
+        for sub in group.get("subgenres") or []:
+            out.append(
+                {
+                    **sub,
+                    "group_id": group["id"],
+                    "group_label": group["label"],
+                }
+            )
+    return out
+
+
+_GENRE_CHART_DEFS: list[dict[str, Any]] = _flatten_genre_defs()
 
 
 def _spotify_client():
@@ -494,15 +633,28 @@ def _artist_names(artists: list[dict[str, Any]] | None) -> str:
     return ", ".join(a.get("name") or "" for a in artists if a.get("name"))
 
 
-def list_chart_regions() -> list[dict[str, str]]:
-    """차트 종류 / 장르 목록."""
-    genres = [
-        {"id": g["id"], "label": g["label"], "name": g["label"]}
+def list_chart_regions() -> list[dict[str, Any]]:
+    """차트 종류 / 대분류·세부장르 트리."""
+    groups = [
+        {
+            "id": g["id"],
+            "label": g["label"],
+            "name": g["label"],
+            "subgenres": [
+                {"id": s["id"], "label": s["label"], "name": s["label"]}
+                for s in (g.get("subgenres") or [])
+            ],
+        }
+        for g in _GENRE_GROUPS
+    ]
+    leaves = [
+        {"id": g["id"], "label": g["label"], "name": g["label"], "group_id": g["group_id"]}
         for g in _GENRE_CHART_DEFS
     ]
     return [
         {"id": "genres", "label": "장르별 신곡", "name": "Genre New Tracks"},
-        *genres,
+        *groups,
+        *leaves,
         *[
             {"id": key, "label": meta["label"], "name": meta["name"]}
             for key, meta in _CHART_KINDS.items()
@@ -676,206 +828,24 @@ def _search_new_tracks_for_genre(
     return out
 
 
-def _beatport_image_uri(raw: Any, size: int = 300) -> str:
-    if isinstance(raw, dict):
-        dyn = str(raw.get("dynamic_uri") or "")
-        if "{w}" in dyn and "{h}" in dyn:
-            return dyn.replace("{w}", str(size)).replace("{h}", str(size))
-        return str(raw.get("uri") or "")
-    return ""
-
-
-def _scrape_beatport_top_tracks(limit: int = 10) -> list[dict[str, Any]]:
-    """Beatport.com Top 100 HTML → __NEXT_DATA__ 트랙 목록."""
-    try:
-        from curl_cffi import requests as creq
-    except ImportError as exc:
-        raise RuntimeError("curl_cffi 미설치") from exc
-
-    resp = creq.get(_BEATPORT_TOP100_URL, impersonate="chrome120", timeout=45)
-    if resp.status_code != 200:
-        raise RuntimeError(f"Beatport HTTP {resp.status_code}")
-    match = re.search(
-        r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>',
-        resp.text,
-        re.S,
-    )
-    if not match:
-        raise RuntimeError("Beatport __NEXT_DATA__ 없음")
-    payload = json.loads(match.group(1))
-    queries = (
-        ((payload.get("props") or {}).get("pageProps") or {})
-        .get("dehydratedState", {})
-        .get("queries")
-        or []
-    )
-    results: list[dict[str, Any]] = []
-    for q in queries:
-        data = ((q or {}).get("state") or {}).get("data")
-        if isinstance(data, dict) and isinstance(data.get("results"), list):
-            results = list(data["results"])
-            break
-    if not results:
-        raise RuntimeError("Beatport Top 100 결과 없음")
-    return results[: max(1, min(int(limit or 10), 100))]
-
-
-def _spotify_match_beatport_track(sp: Any, bp: dict[str, Any]) -> dict[str, Any] | None:
-    """ISRC → 제목+아티스트 순으로 Spotify 트랙 매칭."""
-    isrc = str(bp.get("isrc") or "").strip()
-    if isrc:
-        try:
-            data = sp.search(q=f"isrc:{isrc}", type="track", limit=1, market="US")
-            items = list((data.get("tracks") or {}).get("items") or [])
-            if items and items[0]:
-                return items[0]
-        except Exception:
-            logger.debug("ISRC search failed %s", isrc, exc_info=True)
-
-    title = str(bp.get("name") or "").strip()
-    artists = [
-        str(a.get("name") or "").strip()
-        for a in (bp.get("artists") or [])
-        if isinstance(a, dict) and a.get("name")
-    ]
-    if not title:
-        return None
-    primary = artists[0] if artists else ""
-    queries = []
-    if primary:
-        queries.append(f'track:"{title}" artist:"{primary}"')
-        queries.append(f"{title} {primary}")
-    else:
-        queries.append(f'track:"{title}"')
-    for q in queries:
-        try:
-            data = sp.search(q=q, type="track", limit=5, market="US")
-        except Exception:
-            continue
-        items = list((data.get("tracks") or {}).get("items") or [])
-        title_l = title.lower()
-        for item in items:
-            if not item:
-                continue
-            name = str(item.get("name") or "").lower()
-            if title_l in name or name in title_l or name.split("(")[0].strip() == title_l:
-                return item
-        if items and items[0]:
-            return items[0]
-    return None
-
-
-def _beatport_fallback_payload(bp: dict[str, Any], rank: int) -> dict[str, Any]:
-    bp_id = bp.get("id")
-    slug = str(bp.get("slug") or "track").strip() or "track"
-    artists = [
-        str(a.get("name") or "").strip()
-        for a in (bp.get("artists") or [])
-        if isinstance(a, dict) and a.get("name")
-    ]
-    artist_names = ", ".join(artists)
-    release = bp.get("release") if isinstance(bp.get("release"), dict) else {}
-    thumb = _beatport_image_uri(release.get("image")) or _beatport_image_uri(bp.get("image"))
-    mix = str(bp.get("mix_name") or "").strip()
-    title = str(bp.get("name") or "").strip()
-    if mix and mix.lower() not in {"original mix", "extended mix"}:
-        title = f"{title} ({mix})" if title else mix
-    return {
-        "id": f"bp:{bp_id}",
-        "title": title,
-        "artist": artist_names,
-        "primary_artist": artists[0] if artists else "",
-        "album": str((release or {}).get("name") or ""),
-        "thumbnail_url": thumb,
-        "spotify_url": f"https://www.beatport.com/track/{slug}/{bp_id}",
-        "preview_url": str(bp.get("sample_url") or ""),
-        "popularity": 0,
-        "duration_ms": int(bp.get("length_ms") or 0),
-        "explicit": bool(bp.get("is_explicit")),
-        "rank": rank,
-        "item_type": "track",
-        "release_date": str(bp.get("publish_date") or bp.get("new_release_date") or ""),
-    }
-
-
-def _tracks_from_spotify_playlist(sp: Any, playlist_id: str, limit: int) -> list[dict[str, Any]]:
-    try:
-        data = sp.playlist_items(
-            playlist_id,
-            fields="items(track(id,name,artists,album,external_urls,preview_url,popularity,duration_ms,explicit))",
-            additional_types=["track"],
-            limit=min(max(limit, 1), 50),
-            market="US",
-        )
-    except Exception:
-        logger.warning("Beatport Spotify fallback playlist failed", exc_info=True)
-        return []
-    out: list[dict[str, Any]] = []
-    for i, row in enumerate(data.get("items") or [], start=1):
-        track = (row or {}).get("track")
-        if not track or not track.get("id"):
-            continue
-        payload = _track_payload(track)
-        payload["rank"] = i
-        payload["item_type"] = "track"
-        payload["release_date"] = str((track.get("album") or {}).get("release_date") or "")
-        out.append(payload)
-        if len(out) >= limit:
-            break
-    return out
-
-
-def _get_beatport_top_chart_tracks(sp: Any, limit: int = 10) -> list[dict[str, Any]]:
-    """Beatport Top N → Spotify 매칭(가능 시) + 미리듣기 URL."""
-    capped = max(1, min(int(limit or 10), 20))
-    raw_tracks: list[dict[str, Any]] = []
-    try:
-        raw_tracks = _scrape_beatport_top_tracks(limit=capped)
-    except Exception as exc:
-        logger.warning("Beatport scrape failed, using Spotify mirror: %s", exc)
-        return _tracks_from_spotify_playlist(sp, _BEATPORT_SPOTIFY_FALLBACK_PLAYLIST, capped)
-
-    out: list[dict[str, Any]] = []
-    for i, bp in enumerate(raw_tracks, start=1):
-        matched = _spotify_match_beatport_track(sp, bp)
-        sample = str(bp.get("sample_url") or "")
-        if matched:
-            payload = _track_payload(matched)
-            if not payload.get("preview_url") and sample:
-                payload["preview_url"] = sample
-            # Beatport 커버가 더 선명할 때 보강
-            if not payload.get("thumbnail_url"):
-                release = bp.get("release") if isinstance(bp.get("release"), dict) else {}
-                payload["thumbnail_url"] = (
-                    _beatport_image_uri(release.get("image"))
-                    or _beatport_image_uri(bp.get("image"))
-                )
-            payload["rank"] = i
-            payload["item_type"] = "track"
-            payload["release_date"] = str(
-                (matched.get("album") or {}).get("release_date")
-                or bp.get("publish_date")
-                or ""
-            )
-            out.append(payload)
-        else:
-            out.append(_beatport_fallback_payload(bp, i))
-    return out
-
-
 def _genre_payload(
     gdef: dict[str, Any],
     tracks: list[dict[str, Any]],
     *,
     today_key: str,
 ) -> dict[str, Any]:
-    if gdef.get("source") == "beatport":
-        playlist_name = "Beatport Top 10"
+    group_label = gdef.get("group_label") or gdef["label"]
+    sub_label = gdef["label"]
+    if sub_label == "전체":
+        display = group_label
     else:
-        playlist_name = f"{gdef['label']} Popular Recent"
+        display = f"{group_label} · {sub_label}"
+    playlist_name = f"{display} Popular Recent"
     return {
         "region": gdef["id"],
-        "region_label": gdef["label"],
+        "region_label": display,
+        "group_id": gdef.get("group_id") or gdef["id"],
+        "group_label": group_label,
         "playlist_name": playlist_name,
         "playlist_id": f"genre-{gdef['id']}",
         "chart_date": today_key,
@@ -885,6 +855,7 @@ def _genre_payload(
             {
                 "id": gdef["id"],
                 "label": gdef["label"],
+                "group_id": gdef.get("group_id") or gdef["id"],
                 "tracks": tracks,
             }
         ],
@@ -892,14 +863,14 @@ def _genre_payload(
 
 
 def get_single_genre_chart(genre_id: str, limit: int = 10) -> dict[str, Any]:
-    """단일 장르 차트 (빠름). 장르당 독립 캐시."""
+    """단일 세부장르 차트 (빠름). 장르당 독립 캐시."""
     gdef = next((g for g in _GENRE_CHART_DEFS if g["id"] == genre_id), None)
     if not gdef:
         raise HTTPException(status_code=400, detail="지원하지 않는 장르입니다.")
 
     capped = max(1, min(int(limit or 10), 20))
     today_key = date.today().isoformat()
-    cache_key = f"genre-v6:{gdef['id']}:{capped}"
+    cache_key = f"genre-v7:{gdef['id']}:{capped}"
     cached = _cache_get(cache_key)
     if cached:
         # 빈 차트는 캐시 히트로 고착시키지 않음
@@ -908,12 +879,9 @@ def get_single_genre_chart(genre_id: str, limit: int = 10) -> dict[str, Any]:
             return cached
 
     sp = _spotify_client()
-    if gdef.get("source") == "beatport":
-        tracks = _get_beatport_top_chart_tracks(sp, limit=capped)
-    else:
-        tracks = _search_new_tracks_for_genre(
-            sp, list(gdef["queries"]), limit=capped, lookback_days=180
-        )
+    tracks = _search_new_tracks_for_genre(
+        sp, list(gdef.get("queries") or []), limit=capped, lookback_days=180
+    )
     result = _genre_payload(gdef, tracks, today_key=today_key)
     if tracks:
         _cache_set(cache_key, result)
@@ -921,25 +889,26 @@ def get_single_genre_chart(genre_id: str, limit: int = 10) -> dict[str, Any]:
 
 
 def get_genre_new_charts(per_genre: int = 10) -> dict[str, Any]:
-    """전체 장르 차트. 장르별 병렬 조회 + 캐시 재사용."""
+    """대분류별 '전체' 차트만 병렬 조회 (세부는 탭에서 개별 로드)."""
     capped = max(1, min(int(per_genre or 10), 20))
     today_key = date.today().isoformat()
-    cache_key = f"genres-v6:{capped}"
+    cache_key = f"genres-v7:{capped}"
     cached = _cache_get(cache_key)
     if cached:
         genres = cached.get("genres") or []
         if any((g.get("tracks") or []) for g in genres):
             return cached
 
+    # 대분류 대표(전체) leaf만 — id == group_id
+    primary_defs = [g for g in _GENRE_CHART_DEFS if g["id"] == g.get("group_id")]
     genres_out: list[dict[str, Any]] = []
 
     def _one(gdef: dict[str, Any]) -> dict[str, Any]:
         single = get_single_genre_chart(gdef["id"], capped)
         return (single.get("genres") or [{}])[0]
 
-    # 장르 병렬 처리 (Spotify rate limit 여유 있게 4 workers)
     with ThreadPoolExecutor(max_workers=4) as pool:
-        futures = {pool.submit(_one, g): g for g in _GENRE_CHART_DEFS}
+        futures = {pool.submit(_one, g): g for g in primary_defs}
         by_id: dict[str, dict[str, Any]] = {}
         for fut in as_completed(futures):
             gdef = futures[fut]
@@ -949,16 +918,19 @@ def get_genre_new_charts(per_genre: int = 10) -> dict[str, Any]:
                 logger.warning("genre chart failed %s: %s", gdef["id"], exc)
                 by_id[gdef["id"]] = {
                     "id": gdef["id"],
-                    "label": gdef["label"],
+                    "label": gdef["group_label"],
                     "tracks": [],
                 }
 
-    for gdef in _GENRE_CHART_DEFS:
-        genres_out.append(by_id.get(gdef["id"]) or {
+    for gdef in primary_defs:
+        row = by_id.get(gdef["id"]) or {
             "id": gdef["id"],
-            "label": gdef["label"],
+            "label": gdef["group_label"],
             "tracks": [],
-        })
+        }
+        # UI 대분류 탭용으로 그룹 라벨 노출
+        row = {**row, "id": gdef["id"], "label": gdef["group_label"]}
+        genres_out.append(row)
 
     result: dict[str, Any] = {
         "region": "genres",
@@ -969,6 +941,17 @@ def get_genre_new_charts(per_genre: int = 10) -> dict[str, Any]:
         "updated_at": datetime.now(timezone.utc).isoformat(),
         "tracks": [],
         "genres": genres_out,
+        "groups": [
+            {
+                "id": g["id"],
+                "label": g["label"],
+                "subgenres": [
+                    {"id": s["id"], "label": s["label"]}
+                    for s in (g.get("subgenres") or [])
+                ],
+            }
+            for g in _GENRE_GROUPS
+        ],
     }
     if any((g.get("tracks") or []) for g in genres_out):
         _cache_set(cache_key, result)
@@ -976,7 +959,7 @@ def get_genre_new_charts(per_genre: int = 10) -> dict[str, Any]:
 
 
 def get_spotify_charts(region: str = "genres", limit: int = 10) -> dict[str, Any]:
-    """홈 차트. genres=전체, pop|hiphop|...=단일 장르, songs|albums=주간 글로벌."""
+    """홈 차트. genres=전체, pop|dance-house|...=세부장르, songs|albums=주간."""
     raw = (region or "genres").strip().lower()
     capped = min(max(int(limit or 10), 1), 50)
 
