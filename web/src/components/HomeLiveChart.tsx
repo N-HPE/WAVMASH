@@ -10,81 +10,113 @@ import { Skeleton } from '@/components/ui/skeleton';
 type SubGenre = { id: string; label: string };
 type GenreGroup = {
   id: string;
-  label: string;
+  /** 접근성용만 — UI에는 색상 스와치만 표시 */
+  axis: string;
   color: string;
   colorMuted: string;
-  textOnActive: string;
   subgenres: SubGenre[];
 };
 
+/** 빨주노초파남보 — 근본축: 빨(힙합·R&B) · 노(팝·인디) · 파(댄스) */
 const GENRE_GROUPS: GenreGroup[] = [
   {
-    id: 'pop',
-    label: '팝',
-    color: '#eab308',
-    colorMuted: 'rgba(234, 179, 8, 0.18)',
-    textOnActive: '#111',
-    subgenres: [
-      { id: 'pop', label: '전체' },
-      { id: 'pop-dance', label: '댄스팝' },
-      { id: 'pop-synth', label: '신스팝' },
-      { id: 'pop-kpop', label: 'K-pop' },
-      { id: 'pop-latin', label: '라틴팝' },
-    ],
-  },
-  {
-    id: 'hiphop',
-    label: '힙합',
-    color: '#f97316',
-    colorMuted: 'rgba(249, 115, 22, 0.18)',
-    textOnActive: '#111',
-    subgenres: [
-      { id: 'hiphop', label: '전체' },
-      { id: 'hiphop-trap', label: '트랩' },
-      { id: 'hiphop-drill', label: '드릴' },
-      { id: 'hiphop-k', label: 'K-힙합' },
-      { id: 'hiphop-reggaeton', label: '레게톤' },
-    ],
-  },
-  {
-    id: 'rnb',
-    label: 'R&B',
+    id: 'red',
+    axis: '힙합 · R&B',
     color: '#ef4444',
-    colorMuted: 'rgba(239, 68, 68, 0.18)',
-    textOnActive: '#fff',
+    colorMuted: 'rgba(239, 68, 68, 0.2)',
     subgenres: [
-      { id: 'rnb', label: '전체' },
-      { id: 'rnb-neo', label: '네오소울' },
-      { id: 'rnb-alt', label: '얼터 R&B' },
-      { id: 'rnb-k', label: 'K-R&B' },
+      { id: 'red', label: '전체' },
+      { id: 'red-hiphop', label: '힙합' },
+      { id: 'red-trap', label: '트랩' },
+      { id: 'red-drill', label: '드릴' },
+      { id: 'red-rnb', label: 'R&B' },
+      { id: 'red-neo', label: '네오소울' },
+      { id: 'red-alt', label: '얼터 R&B' },
+      { id: 'red-k-hiphop', label: 'K-힙합' },
+      { id: 'red-k-rnb', label: 'K-R&B' },
     ],
   },
   {
-    id: 'dance',
-    label: '댄스',
-    color: '#3b82f6',
-    colorMuted: 'rgba(59, 130, 246, 0.18)',
-    textOnActive: '#fff',
+    id: 'orange',
+    axis: '라틴 · 리듬',
+    color: '#f97316',
+    colorMuted: 'rgba(249, 115, 22, 0.2)',
     subgenres: [
-      { id: 'dance', label: '전체' },
-      { id: 'dance-house', label: '하우스' },
-      { id: 'dance-techno', label: '테크노' },
-      { id: 'dance-trance', label: '트랜스' },
-      { id: 'dance-dnb', label: '드럼앤베이스' },
-      { id: 'dance-dubstep', label: '덥스텝' },
-      { id: 'dance-salsa', label: '살사' },
+      { id: 'orange', label: '전체' },
+      { id: 'orange-reggaeton', label: '레게톤' },
+      { id: 'orange-latin', label: '라틴' },
+      { id: 'orange-afrobeats', label: '아프로비트' },
+      { id: 'orange-funk', label: '펑크' },
+      { id: 'orange-salsa', label: '살사' },
     ],
   },
   {
-    id: 'indie',
-    label: '인디',
+    id: 'yellow',
+    axis: '팝 · 인디',
+    color: '#eab308',
+    colorMuted: 'rgba(234, 179, 8, 0.2)',
+    subgenres: [
+      { id: 'yellow', label: '전체' },
+      { id: 'yellow-pop', label: '팝' },
+      { id: 'yellow-dance-pop', label: '댄스팝' },
+      { id: 'yellow-synth', label: '신스팝' },
+      { id: 'yellow-kpop', label: 'K-pop' },
+      { id: 'yellow-indie', label: '인디' },
+      { id: 'yellow-indie-pop', label: '인디팝' },
+      { id: 'yellow-indie-rock', label: '인디록' },
+    ],
+  },
+  {
+    id: 'green',
+    axis: '얼터 · 록',
     color: '#22c55e',
-    colorMuted: 'rgba(34, 197, 94, 0.18)',
-    textOnActive: '#111',
+    colorMuted: 'rgba(34, 197, 94, 0.2)',
     subgenres: [
-      { id: 'indie', label: '전체' },
-      { id: 'indie-pop', label: '인디팝' },
-      { id: 'indie-rock', label: '인디록' },
+      { id: 'green', label: '전체' },
+      { id: 'green-alt', label: '얼터너티브' },
+      { id: 'green-rock', label: '록' },
+      { id: 'green-folk', label: '포크' },
+      { id: 'green-chill', label: '칠' },
+    ],
+  },
+  {
+    id: 'blue',
+    axis: '댄스',
+    color: '#3b82f6',
+    colorMuted: 'rgba(59, 130, 246, 0.2)',
+    subgenres: [
+      { id: 'blue', label: '전체' },
+      { id: 'blue-house', label: '하우스' },
+      { id: 'blue-techno', label: '테크노' },
+      { id: 'blue-trance', label: '트랜스' },
+      { id: 'blue-dnb', label: '드럼앤베이스' },
+      { id: 'blue-dubstep', label: '덥스텝' },
+    ],
+  },
+  {
+    id: 'indigo',
+    axis: '딥 · 프로그레시브',
+    color: '#6366f1',
+    colorMuted: 'rgba(99, 102, 241, 0.2)',
+    subgenres: [
+      { id: 'indigo', label: '전체' },
+      { id: 'indigo-deep', label: '딥하우스' },
+      { id: 'indigo-prog', label: '프로그레시브' },
+      { id: 'indigo-minimal', label: '미니멀' },
+      { id: 'indigo-electro', label: '일렉트로니카' },
+    ],
+  },
+  {
+    id: 'violet',
+    axis: '실험 · 앰비언트',
+    color: '#a855f7',
+    colorMuted: 'rgba(168, 85, 247, 0.2)',
+    subgenres: [
+      { id: 'violet', label: '전체' },
+      { id: 'violet-hyperpop', label: '하이퍼팝' },
+      { id: 'violet-ambient', label: '앰비언트' },
+      { id: 'violet-experimental', label: '실험' },
+      { id: 'violet-psychedelic', label: '사이키델릭' },
     ],
   },
 ];
@@ -102,8 +134,8 @@ function formatToday(): string {
 }
 
 export default function HomeLiveChart() {
-  const [groupId, setGroupId] = useState('pop');
-  const [subId, setSubId] = useState('pop');
+  const [groupId, setGroupId] = useState('red');
+  const [subId, setSubId] = useState('red');
   const [tracksByGenre, setTracksByGenre] = useState<
     Record<string, CatalogChartTrack[]>
   >({});
@@ -203,32 +235,30 @@ export default function HomeLiveChart() {
 
   return (
     <section className="feed-card overflow-hidden">
-      <div className="flex flex-wrap items-center justify-between gap-2 px-3 pt-3 pb-1">
-        <div className="flex gap-1.5 overflow-x-auto min-w-0 flex-1">
+      <div className="flex flex-wrap items-center justify-between gap-2 px-3 pt-3.5 pb-1">
+        <div
+          className="flex items-center gap-2.5 overflow-x-auto min-w-0 flex-1 py-0.5"
+          role="tablist"
+          aria-label="장르 스펙트럼"
+        >
           {GENRE_GROUPS.map((g) => {
             const active = groupId === g.id;
             return (
               <button
                 key={g.id}
                 type="button"
+                role="tab"
+                aria-selected={active}
+                aria-label={g.axis}
+                title={g.axis}
                 onClick={() => selectGroup(g.id)}
-                className="shrink-0 rounded-md px-3 py-1.5 text-xs font-medium transition-all border"
-                style={
+                className={`shrink-0 rounded-full transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 focus-visible:ring-offset-2 focus-visible:ring-offset-background ${
                   active
-                    ? {
-                        backgroundColor: g.color,
-                        color: g.textOnActive,
-                        borderColor: g.color,
-                      }
-                    : {
-                        backgroundColor: g.colorMuted,
-                        color: g.color,
-                        borderColor: `${g.color}55`,
-                      }
-                }
-              >
-                {g.label}
-              </button>
+                    ? 'h-7 w-7 ring-2 ring-white/80 scale-110 shadow-md'
+                    : 'h-5 w-5 opacity-75 hover:opacity-100 hover:scale-110'
+                }`}
+                style={{ backgroundColor: g.color }}
+              />
             );
           })}
         </div>
@@ -238,7 +268,7 @@ export default function HomeLiveChart() {
       </div>
 
       {activeGroup.subgenres.length > 1 && (
-        <div className="flex gap-1 overflow-x-auto px-3 pb-2 pt-0.5">
+        <div className="flex gap-1 overflow-x-auto px-3 pb-2 pt-1.5">
           {activeGroup.subgenres.map((s) => {
             const active = subId === s.id;
             return (

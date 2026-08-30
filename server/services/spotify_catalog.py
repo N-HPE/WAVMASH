@@ -45,156 +45,268 @@ _CHART_KINDS: dict[str, dict[str, str]] = {
     },
 }
 
-# 대분류 → 세부장르. 언어/지역 장르(K-pop, 라틴 등)는 실제 장르의 세부로 배치.
-# genre: 필터가 빈 결과를 내는 장르는 키워드+연도 검색으로 폴백.
+# 스펙트럼 대분류 (빨주노초파남보). 근본축: 빨=힙합·R&B, 노=팝·인디, 파=댄스.
+# 대분류 UI는 색상만 노출. genre: 빈 결과는 키워드+연도 폴백.
 _GENRE_GROUPS: list[dict[str, Any]] = [
     {
-        "id": "pop",
-        "label": "팝",
+        "id": "red",
+        "label": "빨",
         "subgenres": [
             {
-                "id": "pop",
+                "id": "red",
                 "label": "전체",
-                "queries": ["genre:pop year:{y1}", "pop year:{y1}"],
+                "queries": ["hip hop year:{y1}", "r&b year:{y1}"],
             },
             {
-                "id": "pop-dance",
-                "label": "댄스팝",
-                "queries": ["dance pop year:{y1}", "genre:dance pop year:{y1}"],
-            },
-            {
-                "id": "pop-synth",
-                "label": "신스팝",
-                "queries": ["synth-pop year:{y1}", "electropop year:{y1}"],
-            },
-            {
-                "id": "pop-kpop",
-                "label": "K-pop",
-                "queries": ["k-pop year:{y1}", "kpop year:{y1}"],
-            },
-            {
-                "id": "pop-latin",
-                "label": "라틴팝",
-                "queries": ["latin pop year:{y1}", "genre:latin year:{y1}"],
-            },
-        ],
-    },
-    {
-        "id": "hiphop",
-        "label": "힙합",
-        "subgenres": [
-            {
-                "id": "hiphop",
-                "label": "전체",
+                "id": "red-hiphop",
+                "label": "힙합",
                 "queries": ["hip hop year:{y1}", "rap year:{y1}"],
             },
             {
-                "id": "hiphop-trap",
+                "id": "red-trap",
                 "label": "트랩",
                 "queries": ["trap year:{y1}", "genre:trap year:{y1}"],
             },
             {
-                "id": "hiphop-drill",
+                "id": "red-drill",
                 "label": "드릴",
                 "queries": ["drill year:{y1}", "uk drill year:{y1}"],
             },
             {
-                "id": "hiphop-k",
-                "label": "K-힙합",
-                "queries": ["k-hip hop year:{y1}", "korean hip hop year:{y1}"],
-            },
-            {
-                "id": "hiphop-reggaeton",
-                "label": "레게톤",
-                "queries": ["reggaeton year:{y1}", "genre:reggaeton year:{y1}"],
-            },
-        ],
-    },
-    {
-        "id": "rnb",
-        "label": "R&B",
-        "subgenres": [
-            {
-                "id": "rnb",
-                "label": "전체",
+                "id": "red-rnb",
+                "label": "R&B",
                 "queries": ["r&b year:{y1}", "genre:soul year:{y1}"],
             },
             {
-                "id": "rnb-neo",
+                "id": "red-neo",
                 "label": "네오소울",
                 "queries": ["neo soul year:{y1}", "genre:neo soul year:{y1}"],
             },
             {
-                "id": "rnb-alt",
+                "id": "red-alt",
                 "label": "얼터 R&B",
                 "queries": ["alternative r&b year:{y1}", "alt r&b year:{y1}"],
             },
             {
-                "id": "rnb-k",
+                "id": "red-k-hiphop",
+                "label": "K-힙합",
+                "queries": ["k-hip hop year:{y1}", "korean hip hop year:{y1}"],
+            },
+            {
+                "id": "red-k-rnb",
                 "label": "K-R&B",
                 "queries": ["korean r&b year:{y1}", "k-r&b year:{y1}"],
             },
         ],
     },
     {
-        "id": "dance",
-        "label": "댄스",
+        "id": "orange",
+        "label": "주",
         "subgenres": [
             {
-                "id": "dance",
+                "id": "orange",
                 "label": "전체",
-                "queries": ["edm year:{y1}", "electronic year:{y1}"],
+                "queries": ["reggaeton year:{y1}", "afrobeats year:{y1}"],
             },
             {
-                "id": "dance-house",
-                "label": "하우스",
-                "queries": ["house year:{y1}", "deep house year:{y1}"],
+                "id": "orange-reggaeton",
+                "label": "레게톤",
+                "queries": ["reggaeton year:{y1}", "genre:reggaeton year:{y1}"],
             },
             {
-                "id": "dance-techno",
-                "label": "테크노",
-                "queries": ["techno year:{y1}", "genre:techno year:{y1}"],
+                "id": "orange-latin",
+                "label": "라틴",
+                "queries": ["latin pop year:{y1}", "genre:latin year:{y1}"],
             },
             {
-                "id": "dance-trance",
-                "label": "트랜스",
-                "queries": ["trance year:{y1}", "genre:trance year:{y1}"],
+                "id": "orange-afrobeats",
+                "label": "아프로비트",
+                "queries": ["afrobeats year:{y1}", "afrobeat year:{y1}"],
             },
             {
-                "id": "dance-dnb",
-                "label": "드럼앤베이스",
-                "queries": ["drum and bass year:{y1}", "dnb year:{y1}"],
+                "id": "orange-funk",
+                "label": "펑크",
+                "queries": ["funk year:{y1}", "genre:funk year:{y1}"],
             },
             {
-                "id": "dance-dubstep",
-                "label": "덥스텝",
-                "queries": ["dubstep year:{y1}", "genre:dubstep year:{y1}"],
-            },
-            {
-                "id": "dance-salsa",
+                "id": "orange-salsa",
                 "label": "살사",
                 "queries": ["salsa year:{y1}", "genre:salsa year:{y1}"],
             },
         ],
     },
     {
-        "id": "indie",
-        "label": "인디",
+        "id": "yellow",
+        "label": "노",
         "subgenres": [
             {
-                "id": "indie",
+                "id": "yellow",
                 "label": "전체",
+                "queries": ["pop year:{y1}", "indie year:{y1}"],
+            },
+            {
+                "id": "yellow-pop",
+                "label": "팝",
+                "queries": ["genre:pop year:{y1}", "pop year:{y1}"],
+            },
+            {
+                "id": "yellow-dance-pop",
+                "label": "댄스팝",
+                "queries": ["dance pop year:{y1}", "genre:dance pop year:{y1}"],
+            },
+            {
+                "id": "yellow-synth",
+                "label": "신스팝",
+                "queries": ["synth-pop year:{y1}", "electropop year:{y1}"],
+            },
+            {
+                "id": "yellow-kpop",
+                "label": "K-pop",
+                "queries": ["k-pop year:{y1}", "kpop year:{y1}"],
+            },
+            {
+                "id": "yellow-indie",
+                "label": "인디",
                 "queries": ["genre:indie year:{y1}", "indie year:{y1}"],
             },
             {
-                "id": "indie-pop",
+                "id": "yellow-indie-pop",
                 "label": "인디팝",
                 "queries": ["indie pop year:{y1}", "genre:indie pop year:{y1}"],
             },
             {
-                "id": "indie-rock",
+                "id": "yellow-indie-rock",
                 "label": "인디록",
                 "queries": ["indie rock year:{y1}", "genre:indie rock year:{y1}"],
+            },
+        ],
+    },
+    {
+        "id": "green",
+        "label": "초",
+        "subgenres": [
+            {
+                "id": "green",
+                "label": "전체",
+                "queries": ["alternative year:{y1}", "indie rock year:{y1}"],
+            },
+            {
+                "id": "green-alt",
+                "label": "얼터너티브",
+                "queries": ["alternative year:{y1}", "alt rock year:{y1}"],
+            },
+            {
+                "id": "green-rock",
+                "label": "록",
+                "queries": ["rock year:{y1}", "genre:rock year:{y1}"],
+            },
+            {
+                "id": "green-folk",
+                "label": "포크",
+                "queries": ["folk year:{y1}", "indie folk year:{y1}"],
+            },
+            {
+                "id": "green-chill",
+                "label": "칠",
+                "queries": ["chill year:{y1}", "lo-fi year:{y1}"],
+            },
+        ],
+    },
+    {
+        "id": "blue",
+        "label": "파",
+        "subgenres": [
+            {
+                "id": "blue",
+                "label": "전체",
+                "queries": ["edm year:{y1}", "electronic year:{y1}"],
+            },
+            {
+                "id": "blue-house",
+                "label": "하우스",
+                "queries": ["house year:{y1}", "deep house year:{y1}"],
+            },
+            {
+                "id": "blue-techno",
+                "label": "테크노",
+                "queries": ["techno year:{y1}", "genre:techno year:{y1}"],
+            },
+            {
+                "id": "blue-trance",
+                "label": "트랜스",
+                "queries": ["trance year:{y1}", "genre:trance year:{y1}"],
+            },
+            {
+                "id": "blue-dnb",
+                "label": "드럼앤베이스",
+                "queries": ["drum and bass year:{y1}", "dnb year:{y1}"],
+            },
+            {
+                "id": "blue-dubstep",
+                "label": "덥스텝",
+                "queries": ["dubstep year:{y1}", "genre:dubstep year:{y1}"],
+            },
+        ],
+    },
+    {
+        "id": "indigo",
+        "label": "남",
+        "subgenres": [
+            {
+                "id": "indigo",
+                "label": "전체",
+                "queries": ["deep house year:{y1}", "progressive house year:{y1}"],
+            },
+            {
+                "id": "indigo-deep",
+                "label": "딥하우스",
+                "queries": ["deep house year:{y1}", "genre:deep house year:{y1}"],
+            },
+            {
+                "id": "indigo-prog",
+                "label": "프로그레시브",
+                "queries": ["progressive house year:{y1}", "progressive trance year:{y1}"],
+            },
+            {
+                "id": "indigo-minimal",
+                "label": "미니멀",
+                "queries": ["minimal techno year:{y1}", "minimal year:{y1}"],
+            },
+            {
+                "id": "indigo-electro",
+                "label": "일렉트로니카",
+                "queries": ["electronica year:{y1}", "intelligent dance year:{y1}"],
+            },
+        ],
+    },
+    {
+        "id": "violet",
+        "label": "보",
+        "subgenres": [
+            {
+                "id": "violet",
+                "label": "전체",
+                "queries": ["hyperpop year:{y1}", "experimental year:{y1}"],
+            },
+            {
+                "id": "violet-hyperpop",
+                "label": "하이퍼팝",
+                "queries": ["hyperpop year:{y1}", "genre:hyperpop year:{y1}"],
+            },
+            {
+                "id": "violet-ambient",
+                "label": "앰비언트",
+                "queries": ["ambient year:{y1}", "genre:ambient year:{y1}"],
+            },
+            {
+                "id": "violet-experimental",
+                "label": "실험",
+                "queries": ["experimental year:{y1}", "avant-garde year:{y1}"],
+            },
+            {
+                "id": "violet-psychedelic",
+                "label": "사이키델릭",
+                "queries": ["psychedelic year:{y1}", "psytrance year:{y1}"],
             },
         ],
     },
@@ -858,7 +970,7 @@ def get_single_genre_chart(genre_id: str, limit: int = 10) -> dict[str, Any]:
 
     capped = max(1, min(int(limit or 10), 20))
     today_key = date.today().isoformat()
-    cache_key = f"genre-v8:{gdef['id']}:{capped}"
+    cache_key = f"genre-v9:{gdef['id']}:{capped}"
     cached = _cache_get(cache_key)
     if cached:
         # 빈 차트는 캐시 히트로 고착시키지 않음
@@ -880,7 +992,7 @@ def get_genre_new_charts(per_genre: int = 10) -> dict[str, Any]:
     """대분류별 '전체' 차트만 병렬 조회 (세부는 탭에서 개별 로드)."""
     capped = max(1, min(int(per_genre or 10), 20))
     today_key = date.today().isoformat()
-    cache_key = f"genres-v8:{capped}"
+    cache_key = f"genres-v9:{capped}"
     cached = _cache_get(cache_key)
     if cached:
         genres = cached.get("genres") or []
