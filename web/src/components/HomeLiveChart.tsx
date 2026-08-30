@@ -212,15 +212,19 @@ export default function HomeLiveChart() {
                 key={g.id}
                 type="button"
                 onClick={() => selectGroup(g.id)}
-                className={`shrink-0 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
-                  active
-                    ? ''
-                    : 'bg-secondary/80 text-muted-foreground hover:bg-white/10 hover:text-foreground'
-                }`}
+                className="shrink-0 rounded-md px-3 py-1.5 text-xs font-medium transition-all border"
                 style={
                   active
-                    ? { backgroundColor: g.color, color: g.textOnActive }
-                    : undefined
+                    ? {
+                        backgroundColor: g.color,
+                        color: g.textOnActive,
+                        borderColor: g.color,
+                      }
+                    : {
+                        backgroundColor: g.colorMuted,
+                        color: g.color,
+                        borderColor: `${g.color}55`,
+                      }
                 }
               >
                 {g.label}
