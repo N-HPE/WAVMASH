@@ -17,7 +17,7 @@ type GenreGroup = {
   subgenres: SubGenre[];
 };
 
-/** 빨주노초파남보 — 근본축: 빨(힙합·R&B) · 노(팝·인디) · 파(댄스) */
+/** 빨주노초파남보 (원형: 보→빨 연결). 근본축: 빨(힙합·R&B) · 노(팝·인디) · 파(댄스) · 보(베이스·블랙댄스) */
 const GENRE_GROUPS: GenreGroup[] = [
   {
     id: 'red',
@@ -89,8 +89,6 @@ const GENRE_GROUPS: GenreGroup[] = [
       { id: 'blue-house', label: '하우스' },
       { id: 'blue-techno', label: '테크노' },
       { id: 'blue-trance', label: '트랜스' },
-      { id: 'blue-dnb', label: '드럼앤베이스' },
-      { id: 'blue-dubstep', label: '덥스텝' },
     ],
   },
   {
@@ -108,15 +106,20 @@ const GENRE_GROUPS: GenreGroup[] = [
   },
   {
     id: 'violet',
-    axis: '실험 · 앰비언트',
+    axis: '베이스 · 블랙댄스',
     color: '#a855f7',
     colorMuted: 'rgba(168, 85, 247, 0.2)',
     subgenres: [
       { id: 'violet', label: '전체' },
-      { id: 'violet-hyperpop', label: '하이퍼팝' },
-      { id: 'violet-ambient', label: '앰비언트' },
-      { id: 'violet-experimental', label: '실험' },
-      { id: 'violet-psychedelic', label: '사이키델릭' },
+      { id: 'violet-amapiano', label: '아마피아노' },
+      { id: 'violet-afro-house', label: '아프로하우스' },
+      { id: 'violet-garage', label: '개러지' },
+      { id: 'violet-grime', label: '그라임' },
+      { id: 'violet-dancehall', label: '댄스홀' },
+      { id: 'violet-jersey', label: '저지클럽' },
+      { id: 'violet-baile', label: '바이르펑크' },
+      { id: 'violet-dnb', label: '드럼앤베이스' },
+      { id: 'violet-dubstep', label: '덥스텝' },
     ],
   },
 ];

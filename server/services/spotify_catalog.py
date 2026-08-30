@@ -236,16 +236,6 @@ _GENRE_GROUPS: list[dict[str, Any]] = [
                 "label": "트랜스",
                 "queries": ["trance year:{y1}", "genre:trance year:{y1}"],
             },
-            {
-                "id": "blue-dnb",
-                "label": "드럼앤베이스",
-                "queries": ["drum and bass year:{y1}", "dnb year:{y1}"],
-            },
-            {
-                "id": "blue-dubstep",
-                "label": "덥스텝",
-                "queries": ["dubstep year:{y1}", "genre:dubstep year:{y1}"],
-            },
         ],
     },
     {
@@ -280,33 +270,59 @@ _GENRE_GROUPS: list[dict[str, Any]] = [
         ],
     },
     {
+        # 보 = 파(댄스)×빨(흑인음악) 교차축. 스펙트럼이 다시 빨강으로 이어짐.
         "id": "violet",
         "label": "보",
         "subgenres": [
             {
                 "id": "violet",
                 "label": "전체",
-                "queries": ["hyperpop year:{y1}", "experimental year:{y1}"],
+                "queries": ["amapiano year:{y1}", "uk garage year:{y1}"],
             },
             {
-                "id": "violet-hyperpop",
-                "label": "하이퍼팝",
-                "queries": ["hyperpop year:{y1}", "genre:hyperpop year:{y1}"],
+                "id": "violet-amapiano",
+                "label": "아마피아노",
+                "queries": ["amapiano year:{y1}", "genre:amapiano year:{y1}"],
             },
             {
-                "id": "violet-ambient",
-                "label": "앰비언트",
-                "queries": ["ambient year:{y1}", "genre:ambient year:{y1}"],
+                "id": "violet-afro-house",
+                "label": "아프로하우스",
+                "queries": ["afro house year:{y1}", "afrohouse year:{y1}"],
             },
             {
-                "id": "violet-experimental",
-                "label": "실험",
-                "queries": ["experimental year:{y1}", "avant-garde year:{y1}"],
+                "id": "violet-garage",
+                "label": "개러지",
+                "queries": ["uk garage year:{y1}", "2-step year:{y1}"],
             },
             {
-                "id": "violet-psychedelic",
-                "label": "사이키델릭",
-                "queries": ["psychedelic year:{y1}", "psytrance year:{y1}"],
+                "id": "violet-grime",
+                "label": "그라임",
+                "queries": ["grime year:{y1}", "genre:grime year:{y1}"],
+            },
+            {
+                "id": "violet-dancehall",
+                "label": "댄스홀",
+                "queries": ["dancehall year:{y1}", "genre:dancehall year:{y1}"],
+            },
+            {
+                "id": "violet-jersey",
+                "label": "저지클럽",
+                "queries": ["jersey club year:{y1}", "baltimore club year:{y1}"],
+            },
+            {
+                "id": "violet-baile",
+                "label": "바이르펑크",
+                "queries": ["baile funk year:{y1}", "funk carioca year:{y1}"],
+            },
+            {
+                "id": "violet-dnb",
+                "label": "드럼앤베이스",
+                "queries": ["drum and bass year:{y1}", "dnb year:{y1}"],
+            },
+            {
+                "id": "violet-dubstep",
+                "label": "덥스텝",
+                "queries": ["dubstep year:{y1}", "genre:dubstep year:{y1}"],
             },
         ],
     },
@@ -970,7 +986,7 @@ def get_single_genre_chart(genre_id: str, limit: int = 10) -> dict[str, Any]:
 
     capped = max(1, min(int(limit or 10), 20))
     today_key = date.today().isoformat()
-    cache_key = f"genre-v9:{gdef['id']}:{capped}"
+    cache_key = f"genre-v10:{gdef['id']}:{capped}"
     cached = _cache_get(cache_key)
     if cached:
         # 빈 차트는 캐시 히트로 고착시키지 않음
@@ -992,7 +1008,7 @@ def get_genre_new_charts(per_genre: int = 10) -> dict[str, Any]:
     """대분류별 '전체' 차트만 병렬 조회 (세부는 탭에서 개별 로드)."""
     capped = max(1, min(int(per_genre or 10), 20))
     today_key = date.today().isoformat()
-    cache_key = f"genres-v9:{capped}"
+    cache_key = f"genres-v10:{capped}"
     cached = _cache_get(cache_key)
     if cached:
         genres = cached.get("genres") or []
