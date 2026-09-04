@@ -25,6 +25,48 @@ export function extractYoutubeId(urlOrId?: string): string | null {
   return match ? match[1] : null;
 }
 
+function trackSpotifyId(track: Track): string {
+  const tid = (track.track_id || '').trim();
+  if (tid.startsWith('sp:')) return tid.slice(3);
+  if (tid && !tid.startsWith('bp:') && !extractYoutubeId(tid)) return tid;
+  return (track.external_id || '').trim();
+}
+
+function hasPlayableSource(track: Track): boolean {
+  if (track.has_file) return true;
+  if (extractYoutubeId(track.url || track.external_id || track.track_id)) {
+    return true;
+  }
+  return Boolean(track.preview_url?.trim());
+}
+
+async function resolvePlayableTrack(track: Track): Promise<Track> {
+  if (hasPlayableSource(track)) return track;
+
+  try {
+    const res = await api.resolveCatalogPreview(
+      track.title,
+      track.artist || track.primary_artist,
+      trackSpotifyId(track)
+    );
+    if (res.youtube_id) {
+      return {
+        ...track,
+        url: res.youtube_url || `https://www.youtube.com/watch?v=${res.youtube_id}`,
+        external_id: res.youtube_id,
+        preview_url: res.preview_url || track.preview_url,
+        platform: 'youtube',
+      };
+    }
+    if (res.preview_url) {
+      return { ...track, preview_url: res.preview_url };
+    }
+  } catch {
+    /* keep original */
+  }
+  return track;
+}
+
 interface PlayerState {
   currentTrack: Track | null;
   isPlaying: boolean;
@@ -66,7 +108,16 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const unmuteAfterPlayRef = useRef(false);
   const volumeRef = useRef(0.8);
   const playRef = useRef<(track: Track, queue?: Track[]) => void>(() => {});
+  const playTrackRef = useRef<
+    (track: Track, queue?: Track[], opts?: { fromAuto?: boolean }) => void
+  >(() => {});
+  const advanceRef = useRef<() => void>(() => {});
   const tickerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const resolveCacheRef = useRef<Map<string, Track>>(new Map());
+  const prefetchingRef = useRef<Set<string>>(new Set());
+  const playGenRef = useRef(0);
+  /** loadVideoById 직후 스퓨리어스 ENDED 무시 */
+  const ignoreEndedUntilRef = useRef(0);
 
   const [state, setState] = useState<PlayerState>({
     currentTrack: null,
@@ -79,6 +130,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     queueIndex: -1,
     engine: 'idle',
   });
+  const stateRef = useRef(state);
+  stateRef.current = state;
 
   const startYtVideo = useCallback((ytId: string) => {
     const player = ytPlayerRef.current;
@@ -99,6 +152,17 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       pendingYtIdRef.current = ytId;
       return false;
     }
+  }, []);
+
+  const bindAudioEnded = useCallback((audio: HTMLAudioElement) => {
+    if ((audio as HTMLAudioElement & { __wmEndedBound?: boolean }).__wmEndedBound) {
+      return;
+    }
+    (audio as HTMLAudioElement & { __wmEndedBound?: boolean }).__wmEndedBound =
+      true;
+    audio.addEventListener('ended', () => {
+      advanceRef.current();
+    });
   }, []);
 
   useEffect(() => {
@@ -152,46 +216,43 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
               } else if (event.data === 2) {
                 setState((prev) => ({ ...prev, isPlaying: false }));
               } else if (event.data === 0) {
-                setState((prev) => {
-                  const { queue, queueIndex } = prev;
-                  if (queue.length > 1) {
-                    const nextIdx = (queueIndex + 1) % queue.length;
-                    setTimeout(() => playRef.current(queue[nextIdx], queue), 0);
-                  }
-                  return { ...prev, isPlaying: false };
-                });
+                if (Date.now() < ignoreEndedUntilRef.current) return;
+                setState((prev) => ({ ...prev, isPlaying: false }));
+                setTimeout(() => advanceRef.current(), 0);
               }
             },
             onError: (e: { data?: number }) => {
               console.warn('YouTube Player error:', e?.data ?? e);
               unmuteAfterPlayRef.current = false;
-              setState((prev) => {
-                const fallback = prev.currentTrack?.preview_url?.trim();
-                if (fallback) {
-                  try {
-                    if (!audioRef.current) {
-                      audioRef.current = new Audio();
-                      audioRef.current.volume = volumeRef.current;
-                    }
-                    const audio = audioRef.current;
-                    audio.src = fallback;
-                    void audio.play().catch(() => {});
-                    return {
-                      ...prev,
-                      isPlaying: true,
-                      engine: 'audio',
-                    };
-                  } catch {
-                    /* fall through */
+              const prev = stateRef.current;
+              const fallback = prev.currentTrack?.preview_url?.trim();
+              if (fallback) {
+                try {
+                  if (!audioRef.current) {
+                    audioRef.current = new Audio();
+                    audioRef.current.volume = volumeRef.current;
+                    bindAudioEnded(audioRef.current);
                   }
+                  const audio = audioRef.current;
+                  audio.src = fallback;
+                  void audio.play().catch(() => {});
+                  setState((s) => ({
+                    ...s,
+                    isPlaying: true,
+                    engine: 'audio',
+                  }));
+                  return;
+                } catch {
+                  /* fall through */
                 }
-                return { ...prev, isPlaying: false, engine: 'idle' };
-              });
+              }
+              // 재생 불가 시 다음 곡으로
+              setTimeout(() => advanceRef.current(), 0);
             },
           },
         });
-      } catch (e) {
-        console.warn('Failed to init YT player:', e);
+      } catch (err) {
+        console.warn('Failed to init YT player:', err);
       }
     }
 
@@ -223,15 +284,18 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     return () => {
       if (pollTimer) clearInterval(pollTimer);
     };
-  }, [startYtVideo]);
+  }, [startYtVideo, bindAudioEnded]);
 
   const getAudio = useCallback(() => {
     if (!audioRef.current && typeof window !== 'undefined') {
       audioRef.current = new Audio();
       audioRef.current.volume = volumeRef.current;
+      bindAudioEnded(audioRef.current);
+    } else if (audioRef.current) {
+      bindAudioEnded(audioRef.current);
     }
     return audioRef.current;
-  }, []);
+  }, [bindAudioEnded]);
 
   useEffect(() => {
     if (state.isPlaying) {
@@ -269,11 +333,13 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     };
   }, [state.isPlaying, state.engine]);
 
-  const play = useCallback(
+  const playNow = useCallback(
     (track: Track, queue?: Track[]) => {
       const newQueue = queue || [track];
       const idx = newQueue.findIndex((t) => t.track_id === track.track_id);
-      const ytId = extractYoutubeId(track.url || track.external_id || track.track_id);
+      const ytId = extractYoutubeId(
+        track.url || track.external_id || track.track_id
+      );
       const previewUrl = track.preview_url?.trim();
 
       if (track.has_file) {
@@ -303,7 +369,30 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      if (previewUrl && !ytId) {
+      if (ytId) {
+        if (audioRef.current) audioRef.current.pause();
+        ignoreEndedUntilRef.current = Date.now() + 1800;
+        setState((prev) => ({
+          ...prev,
+          currentTrack: track,
+          isPlaying: true,
+          progress: 0,
+          currentTime: 0,
+          queue: newQueue,
+          queueIndex: idx >= 0 ? idx : 0,
+          engine: 'youtube',
+        }));
+        if (!startYtVideo(ytId)) {
+          let tries = 0;
+          const timer = setInterval(() => {
+            tries += 1;
+            if (startYtVideo(ytId) || tries >= 40) clearInterval(timer);
+          }, 250);
+        }
+        return;
+      }
+
+      if (previewUrl) {
         pendingYtIdRef.current = null;
         if (ytPlayerRef.current?.pauseVideo) {
           try {
@@ -327,28 +416,6 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
           queueIndex: idx >= 0 ? idx : 0,
           engine: 'audio',
         }));
-        return;
-      }
-
-      if (ytId) {
-        if (audioRef.current) audioRef.current.pause();
-        setState((prev) => ({
-          ...prev,
-          currentTrack: track,
-          isPlaying: true,
-          progress: 0,
-          currentTime: 0,
-          queue: newQueue,
-          queueIndex: idx >= 0 ? idx : 0,
-          engine: 'youtube',
-        }));
-        if (!startYtVideo(ytId)) {
-          let tries = 0;
-          const timer = setInterval(() => {
-            tries += 1;
-            if (startYtVideo(ytId) || tries >= 40) clearInterval(timer);
-          }, 250);
-        }
         return;
       }
 
@@ -376,7 +443,125 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     [getAudio, startYtVideo]
   );
 
-  playRef.current = play;
+  const mergeResolvedIntoQueue = useCallback(
+    (queue: Track[], resolved: Track): Track[] =>
+      queue.map((t) => (t.track_id === resolved.track_id ? resolved : t)),
+    []
+  );
+
+  const playTrack = useCallback(
+    (track: Track, queue?: Track[], opts?: { fromAuto?: boolean }) => {
+      const gen = ++playGenRef.current;
+      const baseQueue =
+        queue ||
+        (stateRef.current.queue.length > 0
+          ? stateRef.current.queue
+          : [track]);
+
+      const cached = resolveCacheRef.current.get(track.track_id);
+      const starter = cached && hasPlayableSource(cached) ? cached : track;
+
+      if (hasPlayableSource(starter)) {
+        playNow(starter, mergeResolvedIntoQueue(baseQueue, starter));
+        return;
+      }
+
+      // UI는 바로 전환, 소스는 백그라운드 해석
+      const idx = baseQueue.findIndex((t) => t.track_id === track.track_id);
+      setState((prev) => ({
+        ...prev,
+        currentTrack: track,
+        isPlaying: true,
+        progress: 0,
+        currentTime: 0,
+        duration: 0,
+        queue: baseQueue,
+        queueIndex: idx >= 0 ? idx : 0,
+        engine: 'idle',
+      }));
+
+      void (async () => {
+        const resolved = await resolvePlayableTrack(track);
+        if (gen !== playGenRef.current) return;
+
+        if (hasPlayableSource(resolved)) {
+          resolveCacheRef.current.set(resolved.track_id, resolved);
+          playNow(resolved, mergeResolvedIntoQueue(baseQueue, resolved));
+          return;
+        }
+
+        // 해석 실패 → 다음 곡으로 (자동 연속 재생)
+        if (opts?.fromAuto !== false) {
+          const q = stateRef.current.queue;
+          const i = stateRef.current.queueIndex;
+          if (i + 1 < q.length) {
+            playTrackRef.current(q[i + 1], q, { fromAuto: true });
+            return;
+          }
+        }
+        setState((prev) => ({ ...prev, isPlaying: false, engine: 'idle' }));
+      })();
+    },
+    [playNow, mergeResolvedIntoQueue]
+  );
+
+  playRef.current = (track, queue) => playTrack(track, queue);
+  playTrackRef.current = playTrack;
+
+  const advance = useCallback(() => {
+    const { queue, queueIndex } = stateRef.current;
+    if (!queue.length || queueIndex < 0) {
+      setState((prev) => ({ ...prev, isPlaying: false }));
+      return;
+    }
+    const nextIdx = queueIndex + 1;
+    if (nextIdx >= queue.length) {
+      // 큐 끝에서 정지 (반복 없음)
+      setState((prev) => ({ ...prev, isPlaying: false, progress: 100 }));
+      return;
+    }
+    playTrackRef.current(queue[nextIdx], queue, { fromAuto: true });
+  }, []);
+
+  advanceRef.current = advance;
+
+  // 다음 1~2곡 YouTube 미리 해석 (끊김 최소화)
+  useEffect(() => {
+    const { queue, queueIndex } = state;
+    if (queueIndex < 0 || !queue.length) return;
+
+    const targets = [queue[queueIndex + 1], queue[queueIndex + 2]].filter(
+      Boolean
+    ) as Track[];
+
+    for (const t of targets) {
+      if (hasPlayableSource(t)) continue;
+      if (resolveCacheRef.current.has(t.track_id)) continue;
+      if (prefetchingRef.current.has(t.track_id)) continue;
+      prefetchingRef.current.add(t.track_id);
+      void resolvePlayableTrack(t)
+        .then((resolved) => {
+          if (!hasPlayableSource(resolved)) return;
+          resolveCacheRef.current.set(resolved.track_id, resolved);
+          setState((prev) => ({
+            ...prev,
+            queue: prev.queue.map((row) =>
+              row.track_id === resolved.track_id ? resolved : row
+            ),
+          }));
+        })
+        .finally(() => {
+          prefetchingRef.current.delete(t.track_id);
+        });
+    }
+  }, [state.queue, state.queueIndex]);
+
+  const play = useCallback(
+    (track: Track, queue?: Track[]) => {
+      playTrack(track, queue);
+    },
+    [playTrack]
+  );
 
   const pause = useCallback(() => {
     if (state.engine === 'youtube') {
@@ -400,11 +585,14 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       } catch {
         /* ignore */
       }
-    } else {
+    } else if (state.engine === 'audio') {
       void audioRef.current?.play().catch(() => {});
+    } else if (state.currentTrack) {
+      playTrack(state.currentTrack, state.queue);
+      return;
     }
     setState((prev) => ({ ...prev, isPlaying: true }));
-  }, [state.engine]);
+  }, [state.engine, state.currentTrack, state.queue, playTrack]);
 
   const togglePlay = useCallback(() => {
     if (state.isPlaying) pause();
@@ -412,16 +600,37 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   }, [state.isPlaying, pause, resume]);
 
   const next = useCallback(() => {
-    const { queue, queueIndex } = state;
+    const { queue, queueIndex } = stateRef.current;
     if (queue.length === 0) return;
-    play(queue[(queueIndex + 1) % queue.length], queue);
-  }, [state, play]);
+    const nextIdx = queueIndex + 1;
+    if (nextIdx >= queue.length) {
+      // 수동 next는 처음으로
+      playTrack(queue[0], queue);
+      return;
+    }
+    playTrack(queue[nextIdx], queue);
+  }, [playTrack]);
 
   const prev = useCallback(() => {
-    const { queue, queueIndex } = state;
+    const { queue, queueIndex, currentTime } = stateRef.current;
     if (queue.length === 0) return;
-    play(queue[(queueIndex - 1 + queue.length) % queue.length], queue);
-  }, [state, play]);
+    // 3초 이상 재생 중이면 곡 처음으로
+    if (currentTime > 3) {
+      if (stateRef.current.engine === 'youtube') {
+        try {
+          ytPlayerRef.current?.seekTo(0, true);
+        } catch {
+          /* ignore */
+        }
+      } else if (audioRef.current) {
+        audioRef.current.currentTime = 0;
+      }
+      setState((s) => ({ ...s, currentTime: 0, progress: 0 }));
+      return;
+    }
+    const prevIdx = (queueIndex - 1 + queue.length) % queue.length;
+    playTrack(queue[prevIdx], queue);
+  }, [playTrack]);
 
   const setVolume = useCallback((v: number) => {
     const clamped = Math.max(0, Math.min(1, v));

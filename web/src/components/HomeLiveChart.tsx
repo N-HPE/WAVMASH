@@ -124,15 +124,18 @@ const GENRE_GROUPS: GenreGroup[] = [
   },
 ];
 
-function formatToday(): string {
+function formatChartDate(isoDate?: string): string {
   try {
-    return new Date().toLocaleDateString('ko-KR', {
+    const d = isoDate
+      ? new Date(`${isoDate}T12:00:00`)
+      : new Date();
+    return d.toLocaleDateString('ko-KR', {
       year: 'numeric',
       month: 'long',
       day: 'numeric',
     });
   } catch {
-    return new Date().toISOString().slice(0, 10);
+    return isoDate || '';
   }
 }
 
@@ -142,11 +145,14 @@ export default function HomeLiveChart() {
   const [tracksByGenre, setTracksByGenre] = useState<
     Record<string, CatalogChartTrack[]>
   >({});
-  const [chartDate, setChartDate] = useState(formatToday());
+  const [chartDate, setChartDate] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const cacheRef = useRef<Record<string, CatalogChartTrack[]>>({});
-  const prefetchStarted = useRef(false);
+  const inflightRef = useRef<Map<string, Promise<CatalogChartTrack[]>>>(
+    new Map()
+  );
+  const prefetchDoneRef = useRef<Set<string>>(new Set());
 
   const activeGroup = useMemo(
     () => GENRE_GROUPS.find((g) => g.id === groupId) || GENRE_GROUPS[0],
@@ -160,78 +166,120 @@ export default function HomeLiveChart() {
     setSubId(group.subgenres[0]?.id || id);
   }, []);
 
-  const loadGenre = useCallback(async (id: string, silent = false) => {
-    if (cacheRef.current[id]?.length) {
-      setTracksByGenre((prev) => ({ ...prev, [id]: cacheRef.current[id] }));
-      if (!silent) setLoading(false);
-      return;
-    }
-    if (!silent) {
-      setLoading(true);
-      setError(null);
-    }
-    try {
+  const fetchGenre = useCallback(async (id: string): Promise<CatalogChartTrack[]> => {
+    const cached = cacheRef.current[id];
+    if (cached?.length) return cached;
+
+    const existing = inflightRef.current.get(id);
+    if (existing) return existing;
+
+    const promise = (async () => {
       const data = await api.getSpotifyChart(id, 10);
       const genre: CatalogChartGenre | undefined =
         (data.genres || []).find((g) => g.id === id) || data.genres?.[0];
       const tracks = genre?.tracks || data.tracks || [];
-      cacheRef.current[id] = tracks;
+      // 빈 결과는 캐시하지 않아 재시도 가능
+      if (tracks.length) {
+        cacheRef.current[id] = tracks;
+      }
       setTracksByGenre((prev) => ({ ...prev, [id]: tracks }));
       if (data.chart_date) {
-        try {
-          setChartDate(
-            new Date(`${data.chart_date}T12:00:00`).toLocaleDateString('ko-KR', {
-              year: 'numeric',
-              month: 'long',
-              day: 'numeric',
-            })
-          );
-        } catch {
-          /* keep */
-        }
+        setChartDate(formatChartDate(data.chart_date));
       }
-    } catch (err) {
-      if (!silent) {
+      return tracks;
+    })().finally(() => {
+      inflightRef.current.delete(id);
+    });
+
+    inflightRef.current.set(id, promise);
+    return promise;
+  }, []);
+
+  const loadActive = useCallback(
+    async (id: string) => {
+      if (cacheRef.current[id]?.length) {
+        setTracksByGenre((prev) => ({ ...prev, [id]: cacheRef.current[id] }));
+        setLoading(false);
+        setError(null);
+        return;
+      }
+      setLoading(true);
+      setError(null);
+      try {
+        const tracks = await fetchGenre(id);
+        if (!tracks.length) {
+          setError(null);
+        }
+      } catch (err) {
         setError(
           err instanceof Error ? err.message : '차트를 불러오지 못했습니다.'
         );
+      } finally {
+        setLoading(false);
       }
-    } finally {
-      if (!silent) setLoading(false);
-    }
-  }, []);
+    },
+    [fetchGenre]
+  );
 
+  // 활성 장르만 먼저 로드
   useEffect(() => {
-    void loadGenre(subId);
-  }, [subId, loadGenre]);
+    void loadActive(subId);
+  }, [subId, loadActive]);
 
+  // 활성 장르 성공 후, 같은 그룹 세부와 다른 대분류 '전체'만 idle에 prefetch
   useEffect(() => {
-    if (prefetchStarted.current) return;
-    if (!tracksByGenre[subId]?.length) return;
-    prefetchStarted.current = true;
+    const activeTracks = tracksByGenre[subId];
+    if (!activeTracks?.length) return;
+    if (prefetchDoneRef.current.has(groupId)) return;
+    prefetchDoneRef.current.add(groupId);
+
+    const siblingIds = activeGroup.subgenres.map((s) => s.id);
     const primaryIds = GENRE_GROUPS.map((g) => g.subgenres[0]?.id).filter(
       Boolean
     ) as string[];
-    const siblingIds = activeGroup.subgenres.map((s) => s.id);
     const queue = [...new Set([...siblingIds, ...primaryIds])].filter(
-      (id) => id !== subId
+      (id) => id !== subId && !cacheRef.current[id]?.length
     );
-    void (async () => {
-      for (const id of queue) {
-        await loadGenre(id, true);
-      }
-    })();
-  }, [tracksByGenre, subId, loadGenre, activeGroup]);
 
-  useEffect(() => {
-    const ids = activeGroup.subgenres.map((s) => s.id);
-    void (async () => {
-      for (const id of ids) {
-        if (cacheRef.current[id]?.length) continue;
-        await loadGenre(id, true);
+    let cancelled = false;
+    const run = () => {
+      void (async () => {
+        for (const id of queue) {
+          if (cancelled) return;
+          try {
+            await fetchGenre(id);
+          } catch {
+            /* prefetch 실패는 무시 */
+          }
+        }
+      })();
+    };
+
+    const ric = (
+      window as Window & {
+        requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
+        cancelIdleCallback?: (id: number) => void;
       }
-    })();
-  }, [activeGroup, loadGenre]);
+    ).requestIdleCallback;
+    let idleId: number | undefined;
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
+    if (typeof ric === 'function') {
+      idleId = ric(run, { timeout: 2500 });
+    } else {
+      timeoutId = setTimeout(run, 400);
+    }
+
+    return () => {
+      cancelled = true;
+      if (idleId != null) {
+        (
+          window as Window & { cancelIdleCallback?: (id: number) => void }
+        ).cancelIdleCallback?.(idleId);
+      }
+      if (timeoutId != null) clearTimeout(timeoutId);
+    };
+  }, [tracksByGenre, subId, groupId, activeGroup, fetchGenre]);
 
   const tracks = tracksByGenre[subId] || [];
   const showSkeleton = loading && tracks.length === 0;
@@ -265,9 +313,11 @@ export default function HomeLiveChart() {
             );
           })}
         </div>
-        <span className="text-[11px] text-muted-foreground tabular-nums shrink-0 px-1">
-          {chartDate}
-        </span>
+        {chartDate ? (
+          <span className="text-[11px] text-muted-foreground tabular-nums shrink-0 px-1">
+            {chartDate}
+          </span>
+        ) : null}
       </div>
 
       {activeGroup.subgenres.length > 1 && (
@@ -309,7 +359,16 @@ export default function HomeLiveChart() {
         <div className="p-10 text-center">
           <TrendingUp className="h-10 w-10 text-muted-foreground/30 mx-auto mb-3" />
           <p className="text-sm font-medium mb-1">차트를 불러올 수 없습니다</p>
-          <p className="text-xs text-muted-foreground max-w-sm mx-auto">{error}</p>
+          <p className="text-xs text-muted-foreground max-w-sm mx-auto mb-3">
+            {error}
+          </p>
+          <button
+            type="button"
+            onClick={() => void loadActive(subId)}
+            className="text-xs font-medium text-foreground underline-offset-2 hover:underline"
+          >
+            다시 시도
+          </button>
         </div>
       ) : tracks.length > 0 ? (
         <ol className="divide-y divide-border">
@@ -337,7 +396,16 @@ export default function HomeLiveChart() {
         <div className="p-10 text-center">
           <TrendingUp className="h-10 w-10 text-muted-foreground/30 mx-auto mb-3" />
           <p className="text-sm font-medium mb-1">차트 데이터가 없습니다</p>
-          <p className="text-xs text-muted-foreground">잠시 후 다시 시도해 주세요.</p>
+          <p className="text-xs text-muted-foreground mb-3">
+            잠시 후 다시 시도해 주세요.
+          </p>
+          <button
+            type="button"
+            onClick={() => void loadActive(subId)}
+            className="text-xs font-medium text-foreground underline-offset-2 hover:underline"
+          >
+            다시 시도
+          </button>
         </div>
       )}
     </section>

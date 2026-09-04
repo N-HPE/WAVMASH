@@ -45,7 +45,8 @@ services:
     ports:
       - "${FRONTEND_PORT:-3000}:3000"
     environment:
-      - NEXT_PUBLIC_API_URL=http://backend:8000/api
+      # 브라우저에서 호출하므로 호스트에 공개된 백엔드 URL 사용 (/api 접두사 중복 금지)
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
       - NODE_ENV=production
     depends_on:
       backend:
