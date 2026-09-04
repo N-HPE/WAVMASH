@@ -24,6 +24,8 @@ function formatTime(seconds: number): string {
   return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
+const CROSSFADE_STEPS = [4, 6, 8, 12];
+
 export default function MiniPlayer() {
   const {
     currentTrack,
@@ -32,12 +34,22 @@ export default function MiniPlayer() {
     duration,
     currentTime,
     volume,
+    autoMix,
+    crossfadeSec,
+    isMixing,
     togglePlay,
     next,
     prev,
     setVolume,
     seekTo,
+    setAutoMix,
+    setCrossfadeSec,
   } = usePlayer();
+
+  const cycleCrossfade = useCallback(() => {
+    const i = CROSSFADE_STEPS.indexOf(crossfadeSec);
+    setCrossfadeSec(CROSSFADE_STEPS[(i + 1) % CROSSFADE_STEPS.length]);
+  }, [crossfadeSec, setCrossfadeSec]);
 
   const handleProgressClick = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
@@ -162,27 +174,61 @@ export default function MiniPlayer() {
               </div>
             </div>
 
-            {/* ── Right: Volume ── */}
-            <div className="hidden sm:flex items-center gap-2 w-[140px] flex-shrink-0 justify-end">
+            {/* ── Right: DJ mix (always) + Volume (sm+) ── */}
+            <div className="flex items-center gap-2 flex-shrink-0 justify-end sm:w-[220px]">
               <button
-                onClick={() => setVolume(volume === 0 ? 0.8 : 0)}
-                className="text-muted-foreground transition-colors hover:text-foreground"
+                onClick={() => setAutoMix(!autoMix)}
+                title={
+                  autoMix
+                    ? `DJ 믹스 켜짐 — 곡 끝 ${crossfadeSec}초 크로스페이드`
+                    : 'DJ 믹스 꺼짐 — 곡이 끝나면 바로 다음 곡'
+                }
+                className={`rounded px-1.5 py-0.5 text-[10px] font-bold tracking-wide transition-colors ${
+                  autoMix
+                    ? 'bg-[#d4a853] text-black'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
               >
-                {volume === 0 ? (
-                  <VolumeX className="h-4 w-4" />
-                ) : (
-                  <Volume2 className="h-4 w-4" />
-                )}
+                DJ
               </button>
-              <input
-                type="range"
-                min={0}
-                max={1}
-                step={0.01}
-                value={volume}
-                onChange={handleVolumeChange}
-                className="w-20 accent-[#d4a853]"
-              />
+
+              {autoMix && (
+                <button
+                  onClick={cycleCrossfade}
+                  title="크로스페이드 길이 변경"
+                  className="text-[10px] tabular-nums text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  {crossfadeSec}s
+                </button>
+              )}
+
+              {isMixing && (
+                <span className="text-[10px] font-medium text-[#d4a853]">
+                  mixing
+                </span>
+              )}
+
+              <div className="hidden sm:flex items-center gap-2">
+                <button
+                  onClick={() => setVolume(volume === 0 ? 0.8 : 0)}
+                  className="text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  {volume === 0 ? (
+                    <VolumeX className="h-4 w-4" />
+                  ) : (
+                    <Volume2 className="h-4 w-4" />
+                  )}
+                </button>
+                <input
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.01}
+                  value={volume}
+                  onChange={handleVolumeChange}
+                  className="w-20 accent-[#d4a853]"
+                />
+              </div>
             </div>
           </div>
         </motion.div>
