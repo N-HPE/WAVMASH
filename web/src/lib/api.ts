@@ -733,6 +733,66 @@ class WaveMashAPI {
     const qs = userId ? `?user_id=${encodeURIComponent(userId)}` : '';
     return this.fetch<any[]>(`/api/social/youtube/playlists/${encodeURIComponent(playlistId)}/tracks${qs}`);
   }
+
+  /* ── Curation Inbox Endpoints (Nexus x WAVMASH) ── */
+
+  async getInbox(
+    status: string = 'inbox',
+    curator?: string,
+    skip: number = 0,
+    limit: number = 50
+  ): Promise<{ items: import('./types').InboxItem[]; total: number; skip: number; limit: number }> {
+    const params = new URLSearchParams({ status, skip: String(skip), limit: String(limit) });
+    if (curator) params.append('curator', curator);
+    return this.fetch(`/api/inbox?${params.toString()}`);
+  }
+
+  async getInboxStats(): Promise<import('./types').InboxStats> {
+    return this.fetch<import('./types').InboxStats>('/api/inbox/stats');
+  }
+
+  async pushToInbox(
+    item: Partial<import('./types').InboxItem> | Array<Partial<import('./types').InboxItem>>
+  ): Promise<any> {
+    return this.fetch('/api/inbox', {
+      method: 'POST',
+      body: JSON.stringify(item),
+    });
+  }
+
+  async keepInboxItem(
+    id: string,
+    targetCrate?: string,
+    triggerDownload: boolean = true
+  ): Promise<{ success: boolean; item: import('./types').InboxItem; download_job_id?: string; message: string }> {
+    return this.fetch(`/api/inbox/${encodeURIComponent(id)}/keep`, {
+      method: 'POST',
+      body: JSON.stringify({
+        target_crate: targetCrate || null,
+        trigger_download: triggerDownload,
+      }),
+    });
+  }
+
+  async passInboxItem(
+    id: string
+  ): Promise<{ success: boolean; item: import('./types').InboxItem; message: string }> {
+    return this.fetch(`/api/inbox/${encodeURIComponent(id)}/pass`, {
+      method: 'POST',
+    });
+  }
+
+  async deleteInboxItem(id: string): Promise<{ message: string; success: boolean }> {
+    return this.fetch(`/api/inbox/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async batchDownloadKept(): Promise<{ count: number; triggered: any[]; message: string }> {
+    return this.fetch('/api/inbox/batch-download', {
+      method: 'POST',
+    });
+  }
 }
 
 

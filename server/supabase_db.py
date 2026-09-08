@@ -315,3 +315,163 @@ def delete_playlist_from_supabase(name: str) -> bool:
     except Exception as e:
         logger.error(f"Supabase delete_playlist error: {e}")
         return False
+
+
+# ---------------------------------------------------------------------------
+# Curation Inbox Operations (Nexus x WAVMASH)
+# ---------------------------------------------------------------------------
+
+def fetch_inbox_from_supabase(
+    *,
+    status: str | None = "inbox",
+    curator: str | None = None,
+    skip: int = 0,
+    limit: int = 50,
+) -> tuple[list[dict[str, Any]], int]:
+    """Fetch curation inbox items from Supabase."""
+    if not is_supabase_enabled():
+        return [], 0
+
+    url = f"{_SUPABASE_URL}/rest/v1/curation_inbox"
+    headers = get_headers()
+    headers["Prefer"] = "count=exact"
+
+    params: dict[str, str] = {
+        "offset": str(skip),
+        "limit": str(limit),
+        "order": "created_at.desc",
+    }
+    if status and status.lower() != "all":
+        params["status"] = f"eq.{status}"
+    if curator:
+        params["curator"] = f"eq.{curator}"
+
+    try:
+        resp = requests.get(url, headers=headers, params=params, timeout=10)
+        resp.raise_for_status()
+
+        total = 0
+        cr = resp.headers.get("Content-Range", "")
+        if "/" in cr:
+            try:
+                total = int(cr.split("/")[-1])
+            except ValueError:
+                total = 0
+
+        data = resp.json()
+        return data if isinstance(data, list) else [], total
+    except Exception as e:
+        logger.warning(f"Supabase fetch_inbox error: {e}")
+        return [], 0
+
+
+def insert_inbox_item_to_supabase(item: dict[str, Any]) -> dict[str, Any] | None:
+    """Insert or upsert an item into curation_inbox."""
+    if not is_supabase_enabled():
+        return None
+
+    url = f"{_SUPABASE_URL}/rest/v1/curation_inbox"
+    headers = get_headers()
+    headers["Prefer"] = "return=representation"
+
+    payload = {
+        "track_id": str(item.get("track_id", "")),
+        "title": str(item.get("title", "")),
+        "artist": str(item.get("artist", "")),
+        "album": str(item.get("album", "")),
+        "genre": str(item.get("genre", "Unknown")),
+        "year": str(item.get("year", "")),
+        "bpm": str(item.get("bpm", "")),
+        "camelot_key": str(item.get("camelot_key", "")),
+        "thumbnail_url": str(item.get("thumbnail_url", "")),
+        "preview_url": str(item.get("preview_url", "")),
+        "spotify_url": str(item.get("spotify_url", "")),
+        "youtube_id": str(item.get("youtube_id", "")),
+        "curator": str(item.get("curator", "nexus_nova")),
+        "curator_note": str(item.get("curator_note", "")),
+        "status": str(item.get("status", "inbox")),
+        "target_crate": item.get("target_crate"),
+    }
+    if item.get("id"):
+        payload["id"] = item["id"]
+
+    try:
+        resp = requests.post(url, headers=headers, json=payload, timeout=10)
+        if resp.status_code in (200, 201):
+            created = resp.json()
+            return created[0] if isinstance(created, list) and created else payload
+        logger.error(f"Supabase insert_inbox failed: {resp.status_code} {resp.text}")
+        return None
+    except Exception as e:
+        logger.error(f"Supabase insert_inbox error: {e}")
+        return None
+
+
+def update_inbox_item_in_supabase(item_id: str, updates: dict[str, Any]) -> bool:
+    """Update curation inbox item status, target_crate, decision_at, etc."""
+    if not is_supabase_enabled() or not item_id:
+        return False
+
+    url = f"{_SUPABASE_URL}/rest/v1/curation_inbox"
+    headers = get_headers()
+    params = {"id": f"eq.{item_id}"}
+
+    try:
+        resp = requests.patch(url, headers=headers, params=params, json=updates, timeout=8)
+        return resp.status_code in (200, 204)
+    except Exception as e:
+        logger.error(f"Supabase update_inbox error: {e}")
+        return False
+
+
+def delete_inbox_item_from_supabase(item_id: str) -> bool:
+    """Delete an item from curation_inbox."""
+    if not is_supabase_enabled() or not item_id:
+        return False
+
+    url = f"{_SUPABASE_URL}/rest/v1/curation_inbox"
+    headers = get_headers()
+    params = {"id": f"eq.{item_id}"}
+
+    try:
+        resp = requests.delete(url, headers=headers, params=params, timeout=5)
+        return resp.status_code in (200, 204)
+    except Exception as e:
+        logger.error(f"Supabase delete_inbox error: {e}")
+        return False
+
+
+def get_inbox_stats_from_supabase() -> dict[str, Any]:
+    """Calculate inbox statistics."""
+    if not is_supabase_enabled():
+        return {"inbox_count": 0, "kept_count": 0, "passed_count": 0, "total_count": 0, "keep_rate_pct": 0.0}
+
+    url = f"{_SUPABASE_URL}/rest/v1/curation_inbox"
+    headers = get_headers()
+
+    counts = {"inbox": 0, "keep": 0, "pass": 0}
+    try:
+        for st in ("inbox", "keep", "pass"):
+            h = dict(headers)
+            h["Prefer"] = "count=exact"
+            r = requests.get(url, headers=h, params={"status": f"eq.{st}", "limit": "1"}, timeout=5)
+            cr = r.headers.get("Content-Range", "")
+            if "/" in cr:
+                try:
+                    counts[st] = int(cr.split("/")[-1])
+                except ValueError:
+                    pass
+        total = sum(counts.values())
+        decided = counts["keep"] + counts["pass"]
+        rate = round((counts["keep"] / decided * 100.0), 1) if decided > 0 else 0.0
+        return {
+            "inbox_count": counts["inbox"],
+            "kept_count": counts["keep"],
+            "passed_count": counts["pass"],
+            "total_count": total,
+            "keep_rate_pct": rate,
+        }
+    except Exception as e:
+        logger.warning(f"Supabase get_inbox_stats error: {e}")
+        return {"inbox_count": 0, "kept_count": 0, "passed_count": 0, "total_count": 0, "keep_rate_pct": 0.0}
+

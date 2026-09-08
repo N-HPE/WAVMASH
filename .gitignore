@@ -21,6 +21,8 @@ desktop_app.log
 archive.json
 archive.json.broken
 playlists.json
+inbox.json
+inbox.json.tmp
 cover_colors.json
 cover_colors.json.tmp
 track_index.db
@@ -32,7 +34,6 @@ data/
 # Spotify sync configs ARE committed so Mac/Windows share which playlists auto-sync.
 # (Contains playlist URLs + Spotify track IDs only — not API secrets.)
 # spotify_sync.json
-
 
 # Build / package
 dist/
@@ -56,4 +57,5 @@ web/.next/
 web/out/
 
 # Runtime chart cache
+.cache
 .cache/

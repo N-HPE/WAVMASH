@@ -377,3 +377,39 @@ export interface HighlightItem {
   created_at: string;
 }
 
+/* ──────────────────────────────────────────────
+   Curation Inbox (Nexus x WAVMASH)
+   ────────────────────────────────────────────── */
+
+export interface InboxItem {
+  id: string;
+  track_id: string;
+  title: string;
+  artist: string;
+  album?: string;
+  genre?: string;
+  year?: string;
+  bpm?: string;
+  camelot_key?: string;
+  thumbnail_url?: string;
+  preview_url?: string;
+  spotify_url?: string;
+  youtube_id?: string;
+  curator?: string;
+  curator_note?: string;
+  status: 'inbox' | 'keep' | 'pass' | 'downloading' | 'archived';
+  target_crate?: string | null;
+  decision_at?: string | null;
+  created_at: string;
+  updated_at?: string;
+}
+
+export interface InboxStats {
+  inbox_count: number;
+  kept_count: number;
+  passed_count: number;
+  total_count: number;
+  keep_rate_pct: number;
+}
+
+

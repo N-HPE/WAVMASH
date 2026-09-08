@@ -15,6 +15,7 @@ import {
   LogOut,
   Disc3,
   Download,
+  Headphones,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { FormEvent, useEffect, useRef, useState } from 'react';
@@ -23,6 +24,7 @@ import { getProfileHref } from '@/lib/profile';
 
 const NAV_ITEMS = [
   { label: '홈', href: '/', icon: Home },
+  { label: '디깅 룸', href: '/digging', icon: Headphones },
   { label: '검색', href: '/search', icon: Compass },
   { label: '다운로드', href: '/download', icon: Download },
   { label: '라이브러리', href: '/library', icon: Library },

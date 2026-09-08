@@ -329,6 +329,73 @@ class ArtistFollowActionReq(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Curation Inbox 모델 (Nexus x WAVMASH)
+# ---------------------------------------------------------------------------
+
+class InboxItem(BaseModel):
+    """큐레이션 인박스 트랙 아이템."""
+
+    id: str = Field(..., description="인박스 아이템 고유 ID (UUID)")
+    track_id: str = Field(..., description="트랙 고유 식별자 또는 외부 ID")
+    title: str = ""
+    artist: str = ""
+    album: str = ""
+    genre: str = "Unknown"
+    year: str = ""
+    bpm: str = ""
+    camelot_key: str = ""
+    thumbnail_url: str = ""
+    preview_url: str = ""
+    spotify_url: str = ""
+    youtube_id: str = ""
+    curator: str = "nexus_nova"
+    curator_note: str = ""
+    status: str = "inbox"  # inbox | keep | pass | downloading | archived
+    target_crate: str | None = None
+    decision_at: str | None = None
+    created_at: str = ""
+    updated_at: str = ""
+
+
+class InboxCreate(BaseModel):
+    """인박스 트랙 인입 요청."""
+
+    track_id: str
+    title: str
+    artist: str
+    album: str = ""
+    genre: str = "Unknown"
+    year: str = ""
+    bpm: str = ""
+    camelot_key: str = ""
+    thumbnail_url: str = ""
+    preview_url: str = ""
+    spotify_url: str = ""
+    youtube_id: str = ""
+    curator: str = "nexus_nova"
+    curator_note: str = ""
+    target_crate: str | None = None
+
+
+class InboxKeepRequest(BaseModel):
+    """Keep 결정 요청 (크레이트 지정 및 자동 다운로드 트리거 여부)."""
+
+    target_crate: str | None = None
+    trigger_download: bool = True
+    export_format: str = "wav"
+
+
+class InboxStats(BaseModel):
+    """인박스 상태 통계."""
+
+    inbox_count: int = 0
+    kept_count: int = 0
+    passed_count: int = 0
+    total_count: int = 0
+    keep_rate_pct: float = 0.0
+
+
+# ---------------------------------------------------------------------------
 # 공통 응답 모델
 # ---------------------------------------------------------------------------
 

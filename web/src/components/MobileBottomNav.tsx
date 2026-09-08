@@ -8,7 +8,7 @@
 import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Flame, Compass, Library, Download, User } from 'lucide-react';
+import { Flame, Compass, Library, Download, User, Headphones } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { getProfileHref } from '@/lib/profile';
 
@@ -24,7 +24,7 @@ export default function MobileBottomNav() {
 
   const NAV_BUTTONS = [
     { label: '홈', href: '/', icon: Flame },
-    { label: '검색', href: '/search', icon: Compass },
+    { label: '디깅', href: '/digging', icon: Headphones },
     { label: '다운로드', href: '/download', icon: Download },
     { label: '라이브러리', href: '/library', icon: Library },
     { label: '프로필', href: profileHref, icon: User },

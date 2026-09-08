@@ -37,6 +37,7 @@ from server.routers import (
     tracks,
     users,
     social,
+    inbox,
 )
 
 # 기존 모듈
@@ -146,6 +147,7 @@ app.include_router(stream.router, prefix=api_prefix)
 app.include_router(users.router, prefix=api_prefix)
 app.include_router(social.router, prefix=api_prefix)
 app.include_router(catalog.router, prefix=api_prefix)
+app.include_router(inbox.router, prefix=api_prefix)
 
 
 # ---------------------------------------------------------------------------
