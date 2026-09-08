@@ -396,6 +396,45 @@ class InboxStats(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Masterpiece Albums 모델 (아티산별 명반 라이브러리)
+# ---------------------------------------------------------------------------
+
+class MasterAlbum(BaseModel):
+    """소장 명반 정보."""
+
+    id: str = Field(..., description="Spotify Album ID 또는 고유 식별자")
+    title: str = ""
+    artist: str = ""
+    cover_url: str = ""
+    year: str = ""
+    genre: str = "Unknown"
+    total_tracks: int = 0
+    spotify_url: str = ""
+    artisan: str = "nova"  # nova | echo | yachi | personal
+    curator_note: str = ""
+    tags: list[str] = Field(default_factory=list)
+    tracks: list[dict[str, Any]] = Field(default_factory=list)
+    created_at: str = ""
+
+
+class MasterAlbumCreate(BaseModel):
+    """명반 수집 요청 모델."""
+
+    id: str
+    title: str = ""
+    artist: str = ""
+    cover_url: str = ""
+    year: str = ""
+    genre: str = "Unknown"
+    total_tracks: int = 0
+    spotify_url: str = ""
+    artisan: str = "nova"
+    curator_note: str = ""
+    tags: list[str] = Field(default_factory=list)
+
+
+
+# ---------------------------------------------------------------------------
 # 공통 응답 모델
 # ---------------------------------------------------------------------------
 

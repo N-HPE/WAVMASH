@@ -67,6 +67,7 @@ export interface CatalogAlbum {
 export interface CatalogSearchResult {
   artists: CatalogArtist[];
   tracks: CatalogTrack[];
+  albums?: CatalogAlbum[];
 }
 
 export interface CatalogArtistProfile {
@@ -411,5 +412,46 @@ export interface InboxStats {
   total_count: number;
   keep_rate_pct: number;
 }
+
+/* ──────────────────────────────────────────────
+   Masterpiece Albums (아티산별 명반 라이브러리)
+   ────────────────────────────────────────────── */
+
+export interface MasterAlbum {
+  id: string;
+  title: string;
+  artist: string;
+  cover_url: string;
+  year?: string;
+  genre?: string;
+  total_tracks?: number;
+  spotify_url?: string;
+  artisan: 'nova' | 'echo' | 'yachi' | 'personal';
+  curator_note?: string;
+  tags?: string[];
+  tracks?: Array<{
+    id?: string;
+    title: string;
+    artist?: string;
+    duration_ms?: number;
+    preview_url?: string;
+  }>;
+  created_at?: string;
+}
+
+export interface MasterAlbumCreate {
+  id: string;
+  title?: string;
+  artist?: string;
+  cover_url?: string;
+  year?: string;
+  genre?: string;
+  total_tracks?: number;
+  spotify_url?: string;
+  artisan: 'nova' | 'echo' | 'yachi' | 'personal';
+  curator_note?: string;
+  tags?: string[];
+}
+
 
 

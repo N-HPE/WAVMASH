@@ -38,6 +38,7 @@ from server.routers import (
     users,
     social,
     inbox,
+    albums,
 )
 
 # 기존 모듈
@@ -148,6 +149,7 @@ app.include_router(users.router, prefix=api_prefix)
 app.include_router(social.router, prefix=api_prefix)
 app.include_router(catalog.router, prefix=api_prefix)
 app.include_router(inbox.router, prefix=api_prefix)
+app.include_router(albums.router, prefix=api_prefix)
 
 
 # ---------------------------------------------------------------------------

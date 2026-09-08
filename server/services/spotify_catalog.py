@@ -508,17 +508,18 @@ def resolve_preview(artist: str, title: str, spotify_id: str = "") -> dict[str, 
 def search_catalog(query: str) -> dict[str, Any]:
     q = (query or "").strip()
     if not q:
-        return {"artists": [], "tracks": []}
+        return {"artists": [], "tracks": [], "albums": []}
 
     sp = _spotify_client()
     try:
-        data = sp.search(q=q, type="artist,track", limit=10, market="US")
+        data = sp.search(q=q, type="artist,track,album", limit=10, market="US")
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Spotify 검색 실패: {exc}") from exc
 
     artists = [_artist_payload(a) for a in (data.get("artists") or {}).get("items") or []]
     tracks = [_track_payload(t) for t in (data.get("tracks") or {}).get("items") or []]
-    return {"artists": artists, "tracks": tracks}
+    albums = [_album_payload(a) for a in (data.get("albums") or {}).get("items") or []]
+    return {"artists": artists, "tracks": tracks, "albums": albums}
 
 
 def _artist_tracks_via_search(

@@ -23,6 +23,8 @@ archive.json.broken
 playlists.json
 inbox.json
 inbox.json.tmp
+master_albums.json
+master_albums.json.tmp
 cover_colors.json
 cover_colors.json.tmp
 track_index.db

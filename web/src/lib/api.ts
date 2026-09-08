@@ -793,6 +793,48 @@ class WaveMashAPI {
       method: 'POST',
     });
   }
+
+  /* ── Masterpiece Albums (아티산별 명반) ── */
+
+  async getMasterAlbums(
+    artisan: string = 'all',
+    search?: string
+  ): Promise<import('./types').MasterAlbum[]> {
+    const params = new URLSearchParams({ artisan });
+    if (search) params.append('search', search);
+    return this.fetch<import('./types').MasterAlbum[]>(`/api/albums?${params.toString()}`);
+  }
+
+  async getMasterAlbum(albumId: string): Promise<import('./types').MasterAlbum> {
+    return this.fetch<import('./types').MasterAlbum>(`/api/albums/${encodeURIComponent(albumId)}`);
+  }
+
+  async collectMasterAlbum(
+    data: import('./types').MasterAlbumCreate
+  ): Promise<import('./types').MasterAlbum> {
+    return this.fetch<import('./types').MasterAlbum>('/api/albums', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteMasterAlbum(albumId: string): Promise<{ message: string; success: boolean }> {
+    return this.fetch(`/api/albums/${encodeURIComponent(albumId)}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async resetMasterAlbums(): Promise<import('./types').MasterAlbum[]> {
+    return this.fetch<import('./types').MasterAlbum[]>('/api/albums/reset-defaults', {
+      method: 'POST',
+    });
+  }
+
+  async clearLegacyTracks(): Promise<{ message: string; success: boolean }> {
+    return this.fetch('/api/albums/clear-legacy', {
+      method: 'POST',
+    });
+  }
 }
 
 
